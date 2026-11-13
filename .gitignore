@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+config.local.json
+server.log
+*.pem
+*.key

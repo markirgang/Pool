@@ -1,0 +1,101 @@
+{
+  "name": "Pool",
+  "port": 2490,
+  "host": "0.0.0.0",
+  "public_url": "https://pool.shobots.party",
+  "timezone": "America/New_York",
+  "intellicenter": {
+    "host": "",
+    "port": 6681,
+    "transport": "tcp",
+    "discovery": true,
+    "discovery_timeout": 6,
+    "reconnect_seconds": 10,
+    "apply_pool_mode_on_start": true
+  },
+  "devices": {
+    "bodies": {
+      "pool": "POOL",
+      "spa": "SPA"
+    },
+    "modes": {
+      "pool": "POOL",
+      "spa": "SPA"
+    },
+    "pumps": {
+      "main": "MAIN PUMP",
+      "features": "FEATURES PUMP"
+    },
+    "pump_programs": {
+      "main": "MAIN PUMP",
+      "features": "FEATURES PUMP"
+    },
+    "deck_jets": {
+      "ne": {
+        "water": "DECK JET NE",
+        "light": "DECK JET NE LIGHT",
+        "thumper": "DECK JET NE THUMPER"
+      },
+      "nw": {
+        "water": "DECK JET NW",
+        "light": "DECK JET NW LIGHT",
+        "thumper": "DECK JET NW THUMPER"
+      },
+      "se": {
+        "water": "DECK JET SE",
+        "light": "DECK JET SE LIGHT",
+        "thumper": "DECK JET SE THUMPER"
+      },
+      "sw": {
+        "water": "DECK JET SW",
+        "light": "DECK JET SW LIGHT",
+        "thumper": "DECK JET SW THUMPER"
+      }
+    },
+    "firebaskets": {
+      "east": {
+        "burner": "FIREBASKET EAST",
+        "water": "FIREBASKET EAST WATER",
+        "spillway_pool_led": "FIREBASKET EAST POOL LED",
+        "spillway_spa_led": "FIREBASKET EAST SPA LED"
+      },
+      "west": {
+        "burner": "FIREBASKET WEST",
+        "water": "FIREBASKET WEST WATER",
+        "spillway_pool_led": "FIREBASKET WEST POOL LED",
+        "spillway_spa_led": "FIREBASKET WEST SPA LED"
+      }
+    },
+    "lights": {
+      "pool": "POOL LIGHT",
+      "spa": "SPA LIGHT"
+    },
+    "heater": {
+      "body": "POOL",
+      "device": "HEATER"
+    }
+  },
+  "defaults": {
+    "mode": "pool",
+    "main_rpm": 2200,
+    "features_rpm": 2800,
+    "pool_setpoint": 84
+  },
+  "schedule": {
+    "enabled": true,
+    "apply_at_startup": false,
+    "runs": [
+      {
+        "name": "Main VSR daytime",
+        "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        "start": "08:00",
+        "end": "18:00",
+        "rpm": 2200
+      }
+    ]
+  },
+  "alexa": {
+    "enabled": true,
+    "skill_name": "Shobots Pool"
+  }
+}
