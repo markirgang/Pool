@@ -256,7 +256,8 @@ def _public_config() -> dict[str, Any]:
     cfg = json.loads(json.dumps(CONFIG))
     cfg.pop("gemini_api_key", None)
     alexa = cfg.get("alexa") or {}
-    alexa.pop("token", None)
+    token = alexa.pop("token", None)
+    alexa["token_set"] = bool(token)
     cfg["ai"] = {
         "provider": _ai_provider({}),
         "model": GEMINI.model_for(_ai_provider({})),

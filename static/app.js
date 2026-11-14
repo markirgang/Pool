@@ -1082,6 +1082,9 @@
       $("alexaSkillName").value = alexa.skill_name || "";
       $("alexaEndpoint").textContent = "Endpoint: " +
         ((pi.public_url || location.origin) + "/alexa");
+      $("alexaSkillInfo").textContent = "Skill: " + (alexa.skill_name || "Shobots Pool") +
+        " \u00B7 " + (alexa.enabled !== false ? "enabled" : "disabled") +
+        " \u00B7 token " + (alexa.token_set ? "set" : "not set");
 
       loadAssistantConfig(config.assistant || {});
       populateBrowserVoices();
@@ -1142,6 +1145,7 @@
       $("alexaToken").value = "";
       toast(result.message || "Alexa settings saved", "good");
       if (result.config) config = result.config;
+      loadConfig();
       loadAlexa();
     } catch (err) {
       toast("Could not save Alexa settings: " + err.message, "error");
