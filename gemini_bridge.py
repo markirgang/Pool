@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+"""Gemini multimodal assistant for conversational pool control.
+
+The assistant can answer questions about the pool, explain what is running,
+and call tools that map onto PoolController commands.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+try:
+    from google import genai
+    from google.genai import types
+    GENAI_AVAILABLE = True
+except Exception:  # pragma: no cover - optional dependency
+    genai = None
+    types = None
+    GENAI_AVAILABLE = False
+
+from pool_controller import LIGHT_EFFECTS
+
+MODEL = "gemini-3.8-flash"
+OPENCODE_MODELS = {
+    "opencode-go": "gemini-4-argon",
+    "opencode": "gemini-3.8-flash",
+}
+OPENCODE_BASE_URLS = {
+    "opencode-go": "https://opencode.ai/inference/go/google/",
+    "opencode": "https://opencode.ai/inference/google/",
+}
+
+_TOOL_ACTIONS = {
+    "pool_set_mode": "set_mode",
+    "pool_set_deck_jet": "set_deck_jet",
+    "pool_set_firebasket": "set_firebasket",
+    "pool_set_all_features": "set_all_features",
+    "pool_set_blower": "set_blower",
+    "pool_set_light": "set_light",
+    "pool_set_spillway_color": "set_spillway_color",
+    "pool_set_heater": "set_heater",
+    "pool_set_pump": "set_pump",
+    "pool_get_status": "status",
+    "pool_system_off": "system_off",
+}
+
+_EFFECTS = sorted(LIGHT_EFFECTS.keys())
+
+
+PERSONALITIES = {
+    "classic": (
+        "You are Iggy, a funny, friendly talking iguana who lives on the deck and "
+        "runs the Lighthouse Point Pool through its Pentair IntelliCenter. Speak in "
+        "first person as the iguana: you lounge by the water, keep an eye on the "
+        "firebaskets, and enjoy a warm spa."
+    ),
+    "surfer": (
+        "You are Iggy, a laid-back surfer iguana who lives on the deck at Lighthouse "
+        "Point Pool. You speak with a relaxed beach attitude, call people 'dude' "
+        "occasionally, and treat every pool command like the start of a good session."
+    ),
+    "butler": (
+        "You are Iggy, an impeccably polite British pool butler iguana at Lighthouse "
+        "Point Pool. You are composed, dryly witty, and address the owner with "
+        "courteous formality while still being warm and helpful."
+    ),
+    "pirate": (
+        "You are Iggy, a cheerful pirate iguana who guards Lighthouse Point Pool. "
+        "You use light nautical and pirate flavor ('ahoy', 'matey', 'smooth sailing') "
+        "without being hard to understand, and you take pool chores seriously."
+    ),
+    "deadpan": (
+        "You are Iggy, a deadpan iguana pool operator at Lighthouse Point Pool. You "
+        "deliver short, dry, understated jokes with a completely straight face, then "
+        "give the useful answer."
+    ),
+    "custom": "",
+}
+
+_BASE_FACTS = (
+    "You control two bodies of water: the pool and the spa. The pool is the default "
+    "mode. The main variable-speed pump circulates the pool/spa. A secondary "
+    "variable-speed pump runs whenever any water feature is on. Water features are "
+    "four deck laminar jets (NE, NW, SE, SW), which the Pentair panel calls NE, NW, "
+    "SE and SW Floor Jets, and two firebaskets (east and west). Each firebasket has a "
+    "pool fountain and a spa fountain; the panel calls them Pool Fountain E/W and "
+    "Spa Fountain E/W. There is also a spa air blower on the Blower circuit. The "
+    "default color for the pool lights is steady blue. Firebasket ignition and "
+    "propane are automatic when the IntelliCenter supplies 12 VAC to the burner. "
+    "There are color LED pool and spa lights, and a heater. IntelliCenter automatically "
+    "moves the 3-way drain and return valves in pool/spa mode."
+)
+
+_RULES = (
+    "Answer in a relaxed, conversational way: relatively short, but not so short "
+    "that it feels clipped, and add a little iguana humor when it fits. When asked "
+    "about the pool temperature, always report BOTH the spa and the pool "
+    "temperatures. When asked for the pool status, the spa status, or how everything "
+    "is doing, say out loud the pool temperature, spa temperature, salt/chemistry "
+    "level, pumps, heater, deck/floor jets, firebasket fountains, spa blower and "
+    "lights. When asked about pool chemistry or water quality, report the salt level "
+    "in ppm and the salt source (and say plainly if no other chemistry readings are "
+    "available). Use the tools to make changes. If the user asks for several things, call one "
+    "tool at a time. Never invent equipment that is not available. If a command "
+    "cannot be applied because the panel is offline, say it was applied in "
+    "simulation mode."
+)
+
+
+class GeminiPoolBridge:
+    def __init__(self) -> None:
+        self.system_instruction = self.system_prompt(None)
+
+    @staticmethod
+    def model_for(provider: str) -> str:
+        return OPENCODE_MODELS.get(provider, MODEL)
+
+    def system_prompt(self, assistant: dict[str, Any] | None = None) -> str:
+        assistant = assistant or {}
+        preset = str(assistant.get("personality") or "classic").lower()
+        persona = PERSONALITIES.get(preset, PERSONALITIES["classic"])
+        if preset == "custom":
+            persona = str(assistant.get("personality_custom") or "").strip()
+            if not persona:
+                persona = PERSONALITIES["classic"]
+            persona = "You are Iggy, the Lighthouse Point Pool iguana. " + persona
+        return persona + "\n" + _BASE_FACTS + "\n" + _RULES
+
+    def _tools(self):
+        if not GENAI_AVAILABLE:
+            return []
+        return [
+            types.Tool(function_declarations=[
+                types.FunctionDeclaration(
+                    name="pool_set_mode",
+                    description="Switch the pool between pool mode and spa mode.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "mode": types.Schema(
+                                type=types.Type.STRING,
+                                enum=["pool", "spa"],
+                            )
+                        },
+                        required=["mode"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_deck_jet",
+                    description="Turn one deck/floor laminar jet on or off.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "jet": types.Schema(
+                                type=types.Type.STRING,
+                                enum=["ne", "nw", "se", "sw"],
+                            ),
+                            "on": types.Schema(type=types.Type.BOOLEAN),
+                            "light": types.Schema(type=types.Type.BOOLEAN),
+                            "thumper": types.Schema(type=types.Type.BOOLEAN),
+                        },
+                        required=["jet", "on"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_firebasket",
+                    description="Turn one firebasket (east or west) on or off, which opens its pool and spa fountain circuits.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "basket": types.Schema(
+                                type=types.Type.STRING, enum=["east", "west"]
+                            ),
+                            "on": types.Schema(type=types.Type.BOOLEAN),
+                        },
+                        required=["basket", "on"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_all_features",
+                    description="Turn all deck jets and firebaskets on or off together.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={"on": types.Schema(type=types.Type.BOOLEAN)},
+                        required=["on"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_blower",
+                    description="Turn the spa air blower on or off.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={"on": types.Schema(type=types.Type.BOOLEAN)},
+                        required=["on"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_light",
+                    description="Turn the pool or spa color LED on/off and optionally choose a color effect.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "body": types.Schema(
+                                type=types.Type.STRING, enum=["pool", "spa"]
+                            ),
+                            "on": types.Schema(type=types.Type.BOOLEAN),
+                            "effect": types.Schema(
+                                type=types.Type.STRING, enum=_EFFECTS
+                            ),
+                        },
+                        required=["body"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_spillway_color",
+                    description="Set the firebasket spillway LED color effect (default is steady blue).",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "effect": types.Schema(
+                                type=types.Type.STRING, enum=_EFFECTS
+                            )
+                        },
+                        required=["effect"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_heater",
+                    description="Turn the heater on or off and optionally set the target temperature in Fahrenheit.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "on": types.Schema(type=types.Type.BOOLEAN),
+                            "setpoint": types.Schema(type=types.Type.NUMBER),
+                        },
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_pump",
+                    description="Turn the main or features variable-speed pump on/off and optionally set RPM.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "pump": types.Schema(
+                                type=types.Type.STRING,
+                                enum=["main", "features"],
+                            ),
+                            "on": types.Schema(type=types.Type.BOOLEAN),
+                            "rpm": types.Schema(type=types.Type.NUMBER),
+                        },
+                        required=["pump"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_get_status",
+                    description="Read the current pool mode, temperatures, pump speeds, features, lights and heater state.",
+                    parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_system_off",
+                    description="Turn off water features, lights, heater and both pumps.",
+                    parameters=types.Schema(type=types.Type.OBJECT, properties={}),
+                ),
+            ])
+        ]
+
+    def generate_chat_response(self, api_key: str, prompt: str = "",
+                               pool_state: dict | None = None,
+                               assistant: dict | None = None,
+                               image_bytes: bytes | None = None,
+                               image_mime: str = "image/jpeg",
+                               provider: str = "google") -> dict[str, Any]:
+        return self._generate(api_key, prompt, None, None, pool_state, assistant,
+                              False, image_bytes, image_mime, provider)
+
+    def generate_voice_chat_response(self, api_key: str, audio_bytes: bytes | None,
+                                     mime_type: str = "audio/webm",
+                                     pool_state: dict | None = None,
+                                     assistant: dict | None = None,
+                                     local: bool = False,
+                                     image_bytes: bytes | None = None,
+                                     image_mime: str = "image/jpeg",
+                                     provider: str = "google") -> dict[str, Any]:
+        return self._generate(api_key, "", audio_bytes, mime_type, pool_state,
+                              assistant, local, image_bytes, image_mime, provider)
+
+    def _generate(self, api_key: str, prompt: str, audio_bytes: bytes | None,
+                  mime_type: str | None, pool_state: dict | None,
+                  assistant: dict | None = None,
+                  local: bool = False,
+                  image_bytes: bytes | None = None,
+                  image_mime: str = "image/jpeg",
+                  provider: str = "google") -> dict[str, Any]:
+        if not GENAI_AVAILABLE:
+            return {"text": "google-genai is not installed on the server.", "action": None}
+        if not api_key:
+            return {
+                "text": "Add an OpenCode API key in Hardware settings to talk to the pool.",
+                "action": None,
+            }
+
+        if provider in OPENCODE_BASE_URLS:
+            client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(
+                    base_url=OPENCODE_BASE_URLS[provider],
+                    headers={"Authorization": "Bearer " + api_key},
+                ),
+            )
+        else:
+            provider = "google"
+            client = genai.Client(api_key=api_key)
+        model = OPENCODE_MODELS.get(provider, MODEL)
+        contents = []
+        if image_bytes:
+            contents.append(
+                types.Part.from_bytes(data=image_bytes, mime_type=image_mime or "image/jpeg")
+            )
+            prompt = (
+                "Look at the image from the pool camera. The user may be showing you "
+                "something. Describe what you see as Iggy, then answer the request.\n"
+                + (prompt or "What am I showing you?")
+            )
+        if audio_bytes:
+            contents.append(types.Part.from_bytes(data=audio_bytes, mime_type=mime_type))
+            prompt = (
+                "Listen to my spoken request. Transcribe it, reply briefly, and call "
+                "the matching pool tool when I ask for a change.\n"
+                "Format:\nTRANSCRIPTION: [words]\nRESPONSE: [answer]"
+            )
+            if local:
+                prompt += (
+                    "\nThis audio came from the always-on local microphone. If it is "
+                    "not addressed to Iggy or is just background conversation, put "
+                    "IGNORE on the RESPONSE line and call no tools."
+                )
+        if pool_state:
+            summary = self._state_summary(pool_state)
+            prompt = (prompt or "How is the pool?") + "\n\nCurrent pool state:\n" + summary
+        contents.append(prompt)
+
+        config = types.GenerateContentConfig(
+            system_instruction=self.system_prompt(assistant),
+            tools=self._tools(),
+            temperature=0.4,
+        )
+        try:
+            response = client.models.generate_content(
+                model=model, contents=contents, config=config
+            )
+            text = response.text or ""
+            transcription = ""
+            if "TRANSCRIPTION:" in text:
+                head, _, tail = text.partition("RESPONSE:")
+                transcription = head.replace("TRANSCRIPTION:", "").strip()
+                text = tail.strip() if tail else text
+            action = None
+            if response.function_calls:
+                call = response.function_calls[0]
+                action = self._action_for(call.name, dict(call.args or {}))
+                if not text:
+                    text = "Done."
+            return {
+                "text": text or "Done.",
+                "transcription": transcription,
+                "action": action,
+            }
+        except Exception as exc:
+            message = str(exc)
+            lowered = message.lower()
+            if "402" in message or "credits are depleted" in lowered or "resource_exhausted" in lowered:
+                if provider in OPENCODE_BASE_URLS:
+                    message = "My OpenCode key is out of credits. Add credits or use a free model."
+                else:
+                    message = "My Google AI key is out of credits. Add Google AI Studio billing or use an OpenCode Go key."
+            else:
+                message = "AI error: %s" % message
+            return {"text": message, "action": None}
+
+    def _action_for(self, name: str, args: dict[str, Any]) -> dict[str, Any] | None:
+        action = _TOOL_ACTIONS.get(name)
+        if not action:
+            return None
+        if action == "set_mode":
+            payload = {"mode": args.get("mode", "pool")}
+        elif action == "set_deck_jet":
+            payload = {
+                "id": str(args.get("jet", "ne")).lower(),
+                "on": args.get("on"),
+                "light": args.get("light"),
+                "thumper": args.get("thumper"),
+            }
+        elif action == "set_firebasket":
+            payload = {
+                "id": str(args.get("basket", "east")).lower(),
+                "on": bool(args.get("on")),
+            }
+        elif action == "set_all_features":
+            payload = {"on": bool(args.get("on"))}
+        elif action == "set_blower":
+            payload = {"on": bool(args.get("on"))}
+        elif action == "set_spillway_color":
+            payload = {"effect": args.get("effect")}
+        elif action == "set_light":
+            payload = {
+                "body": str(args.get("body", "pool")).lower(),
+                "on": args.get("on"),
+                "effect": args.get("effect"),
+            }
+        elif action == "set_heater":
+            payload = {
+                "on": args.get("on"),
+                "setpoint": args.get("setpoint"),
+            }
+        elif action == "set_pump":
+            payload = {
+                "pump": str(args.get("pump", "main")).lower(),
+                "on": args.get("on"),
+                "rpm": args.get("rpm"),
+            }
+        else:
+            payload = {}
+        return {"action": action, "payload": payload}
+
+    @staticmethod
+    def _state_summary(state: dict[str, Any]) -> str:
+        pumps = state.get("pumps", {})
+        jets = state.get("deck_jets", {})
+        baskets = state.get("firebaskets", {})
+        lights = state.get("lights", {})
+        heater = state.get("heater", {})
+        bodies = state.get("bodies", {})
+        blower = state.get("blower", {})
+        lines = [
+            "Mode: %s" % state.get("mode"),
+            "Pool temp: %s F, setpoint %s F" % (
+                bodies.get("pool", {}).get("temp"),
+                bodies.get("pool", {}).get("setpoint"),
+            ),
+            "Spa temp: %s F, setpoint %s F" % (
+                bodies.get("spa", {}).get("temp"),
+                bodies.get("spa", {}).get("setpoint"),
+            ),
+            "Salt level: %s ppm (%s)" % (
+                state.get("chemistry", {}).get("salt"),
+                state.get("chemistry", {}).get("source"),
+            ),
+            "Spillway LED color: %s" % state.get("spillway_effect"),
+            "Main pump: %s at %s RPM" % (
+                "on" if pumps.get("main", {}).get("on") else "off",
+                pumps.get("main", {}).get("rpm"),
+            ),
+            "Features pump: %s" % (
+                "on" if pumps.get("features", {}).get("on") else "off"
+            ),
+            "Deck jets: %s" % ", ".join(
+                "%s=%s" % (key.upper(), "on" if value.get("on") else "off")
+                for key, value in jets.items()
+            ),
+            "Firebaskets: %s" % ", ".join(
+                "%s=%s" % (key.capitalize(), "on" if value.get("on") else "off")
+                for key, value in baskets.items()
+            ),
+            "Lights: pool=%s, spa=%s" % (
+                "on" if lights.get("pool", {}).get("on") else "off",
+                "on" if lights.get("spa", {}).get("on") else "off",
+            ),
+            "Heater: %s at %s F" % (
+                "on" if heater.get("on") else "off", heater.get("setpoint")
+            ),
+            "Spa blower: %s" % ("on" if blower.get("on") else "off"),
+            "Panel: %s" % state.get("connection", {}).get("mode"),
+        ]
+        return "\n".join(lines)

@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shobots Pool - IntelliCenter Control</title>
+  <link rel="stylesheet" href="style.css?v=1">
+  <script src="lib/three.min.js"></script>
+  <script src="lib/OrbitControls.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">P</div>
+      <div>
+        <div class="brand-name">SHOBOTS <span>POOL</span></div>
+        <div class="brand-sub">Pentair IntelliCenter control</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <a class="public-link" href="https://pool.shobots.party" target="_blank" rel="noopener">pool.shobots.party</a>
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot"></span>
+        <span id="statusText">CONNECTING</span>
+      </div>
+      <div class="mode-pill" id="modePill">POOL MODE</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: controls -->
+    <section class="controls-column">
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="control">Control</button>
+        <button class="tab" data-tab="schedule">Schedule</button>
+        <button class="tab" data-tab="voice">Voice</button>
+        <button class="tab" data-tab="setup">Hardware</button>
+      </nav>
+
+      <!-- CONTROL -->
+      <div class="view active" id="view-control">
+        <section class="card hero-card">
+          <div class="card-head">
+            <div>
+              <h2>Water Body</h2>
+              <p class="muted">Pool is the startup default. IntelliCenter moves the 3-way valves for you.</p>
+            </div>
+            <button class="btn danger small" id="allOff">All Off</button>
+          </div>
+          <div class="mode-switch">
+            <button class="mode-btn active" id="modePool">
+              <span class="mode-icon pool-icon"></span>
+              <span>
+                <strong>Pool</strong>
+                <small>Pool drain / spa return</small>
+              </span>
+            </button>
+            <button class="mode-btn" id="modeSpa">
+              <span class="mode-icon spa-icon"></span>
+              <span>
+                <strong>Spa</strong>
+                <small>Spa drain / pool return</small>
+              </span>
+            </button>
+          </div>
+          <div class="body-stats">
+            <div class="stat">
+              <span class="stat-label">Pool water</span>
+              <span class="stat-value" id="poolTemp">--</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Spa water</span>
+              <span class="stat-value" id="spaTemp">--</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Salt</span>
+              <span class="stat-value" id="saltLevel">--</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Valves</span>
+              <span class="stat-value small-value" id="valveText">--</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Variable Speed Pumps</h2>
+              <p class="muted">Main VSR circulates pool/spa. Features VSR runs with any water feature.</p>
+            </div>
+          </div>
+          <div class="pump-grid">
+            <div class="pump-card" id="mainPumpCard">
+              <div class="pump-head">
+                <div>
+                  <strong>Main VSR</strong>
+                  <div class="pump-state" id="mainPumpState">Off</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="mainPumpToggle">
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="rpm-row">
+                <input type="range" id="mainRpm" min="450" max="3450" step="25" value="2200">
+                <span class="rpm-value" id="mainRpmVal">2200 RPM</span>
+              </div>
+              <div class="pump-metrics" id="mainPumpMetrics">-- GPM / -- W</div>
+            </div>
+            <div class="pump-card" id="featuresPumpCard">
+              <div class="pump-head">
+                <div>
+                  <strong>Features VSR</strong>
+                  <div class="pump-state" id="featuresPumpState">Off</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="featuresPumpToggle">
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="rpm-row">
+                <input type="range" id="featuresRpm" min="450" max="3450" step="25" value="2800">
+                <span class="rpm-value" id="featuresRpmVal">2800 RPM</span>
+              </div>
+              <div class="pump-metrics" id="featuresPumpMetrics">-- GPM / -- W</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Water Features</h2>
+              <p class="muted">Any feature starts the secondary VSR pump automatically.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn small" id="featuresAllOn">All On</button>
+              <button class="btn small ghost" id="featuresAllOff">All Off</button>
+            </div>
+          </div>
+
+          <h3 class="group-title">Floor Jets (Deck Laminar Jets)</h3>
+          <div class="feature-grid" id="deckJets">
+            <!-- populated by app.js -->
+          </div>
+
+          <h3 class="group-title">Firebaskets &amp; Fountains</h3>
+          <div class="feature-grid" id="firebaskets">
+            <!-- populated by app.js -->
+          </div>
+
+          <h3 class="group-title">Spa Air Blower</h3>
+          <div class="feature-grid">
+            <div class="feature-card" id="blowerCard">
+              <div class="feature-head">
+                <div>
+                  <div class="feature-title">Spa Air Blower</div>
+                  <div class="feature-sub" id="blowerState">Off</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="blowerToggle">
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="spillway-row">
+            <span>Spillway LED color</span>
+            <select id="spillwayEffect" class="select"></select>
+            <span class="muted">Steady blue is the default</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Lights &amp; Heater</h2>
+              <p class="muted">Pentair color LEDs and the pool heater.</p>
+            </div>
+          </div>
+          <div class="light-grid">
+            <div class="light-card" data-body="pool">
+              <div class="light-head">
+                <div>
+                  <strong>Pool LED</strong>
+                  <div class="pump-state" id="poolLightState">Off</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="poolLightToggle">
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <select id="poolEffect" class="select"></select>
+            </div>
+            <div class="light-card" data-body="spa">
+              <div class="light-head">
+                <div>
+                  <strong>Spa LED</strong>
+                  <div class="pump-state" id="spaLightState">Off</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="spaLightToggle">
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <select id="spaEffect" class="select"></select>
+            </div>
+          </div>
+          <div class="heater-row">
+            <div class="heater-info">
+              <div class="heater-title">
+                <strong>Heater</strong>
+                <span class="chip" id="heaterStatus">OFF</span>
+              </div>
+              <div class="muted" id="heaterBodyText">Heats the active body of water</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="heaterToggle">
+              <span class="slider"></span>
+            </label>
+            <div class="setpoint">
+              <span id="heaterSetpointVal">84&deg;F</span>
+              <input type="range" id="heaterSetpoint" min="40" max="104" step="1" value="84">
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- SCHEDULE -->
+      <div class="view" id="view-schedule">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Main VSR Schedule</h2>
+              <p class="muted">The main pump runs at the scheduled RPM inside each window.</p>
+            </div>
+            <label class="switch inline">
+              <input type="checkbox" id="scheduleEnabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="schedule-next" id="scheduleNext">Next run: --</div>
+          <div id="scheduleRuns" class="schedule-runs"></div>
+          <div class="row-actions">
+            <button class="btn small" id="addRun">Add Run</button>
+            <button class="btn primary small" id="saveSchedule">Save Schedule</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- VOICE -->
+      <div class="view" id="view-voice">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Talk to the Pool</h2>
+              <p class="muted">Ask for changes in plain language. Gemini calls the same IntelliCenter circuits.</p>
+            </div>
+          </div>
+          <div class="voice-panel">
+            <button class="mic-btn" id="micBtn" title="Hold to talk">
+              <span class="mic-ring"></span>
+              <span class="mic-core"></span>
+            </button>
+            <div class="voice-status" id="voiceStatus">Press and hold, then speak</div>
+            <div class="voice-bubble" id="voiceTranscript"></div>
+            <div class="voice-response" id="voiceResponse"></div>
+            <div class="voice-text-row">
+              <input type="text" id="voiceText" placeholder="e.g. Turn on the NE deck jet and the pool light">
+              <button class="btn primary" id="sendVoiceText">Send</button>
+            </div>
+            <label class="checkline">
+              <input type="checkbox" id="ttsToggle" checked> Speak replies out loud
+            </label>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Iggy Personality &amp; Voice</h2>
+              <p class="muted">Choose Iggy&rsquo;s character and the voice used in the browser and on the Pi speaker.</p>
+            </div>
+            <span class="chip" id="assistantChip">IGGY</span>
+          </div>
+          <div class="form-grid assistant-grid">
+            <label>Personality
+              <select id="personalitySelect" class="select">
+                <option value="classic">Classic Iggy</option>
+                <option value="surfer">Surfer Iggy</option>
+                <option value="butler">British Butler Iggy</option>
+                <option value="pirate">Pirate Iggy</option>
+                <option value="deadpan">Deadpan Iggy</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>Voice source
+              <select id="voiceSource" class="select">
+                <option value="browser">Browser voices</option>
+                <option value="server">Server voice profiles</option>
+              </select>
+            </label>
+            <label>Browser voice
+              <select id="browserVoice" class="select"></select>
+            </label>
+            <label>Server / local voice
+              <select id="serverVoice" class="select"></select>
+            </label>
+          </div>
+          <label class="persona-custom" id="customPersonaWrap">Custom personality
+            <textarea id="personalityCustom" rows="3" placeholder="Describe how Iggy should talk, e.g. a sleepy Florida iguana who loves puns..."></textarea>
+          </label>
+          <div class="form-grid two-up">
+            <label>Speaking rate <span class="range-readout" id="rateVal">1.02</span>
+              <input type="range" id="speakRate" min="0.6" max="1.6" step="0.02" value="1.02">
+            </label>
+            <label>Speaking pitch <span class="range-readout" id="pitchVal">1.06</span>
+              <input type="range" id="speakPitch" min="0.5" max="1.8" step="0.02" value="1.06">
+            </label>
+          </div>
+          <div class="row-actions">
+            <button class="btn primary small" id="saveAssistant">Save Personality &amp; Voice</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Microphones &amp; Speakers</h2>
+              <p class="muted">The Pi microphone and speaker always stay on. Browser mic/speaker choices are added on top.</p>
+            </div>
+            <button class="btn small ghost" id="refreshAudio">Refresh Devices</button>
+          </div>
+          <div class="form-grid audio-grid">
+            <label>Browser microphone
+              <select id="browserMic" class="select"></select>
+            </label>
+            <label>Browser speaker
+              <select id="browserSpeaker" class="select"></select>
+            </label>
+            <label>Local / webcam microphone
+              <select id="localMic" class="select"></select>
+            </label>
+            <label>Local / monitor speaker
+              <select id="localSpeaker" class="select"></select>
+            </label>
+          </div>
+          <div class="conn-detail" id="localAudioStatus">Checking local audio hardware...</div>
+          <div class="row-actions">
+            <button class="btn primary small" id="saveAudio">Save Devices</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Iggy&rsquo;s Eyes &mdash; Webcam</h2>
+              <p class="muted">Show Iggy something. The local webcam is captured with each local voice request; browser cameras are additive.</p>
+            </div>
+            <button class="btn small ghost" id="refreshCameras">Refresh Cameras</button>
+          </div>
+          <div class="form-grid audio-grid">
+            <label>Local camera
+              <select id="localCamera" class="select"></select>
+            </label>
+            <label>Browser camera
+              <select id="browserCamera" class="select"></select>
+            </label>
+            <label>Local camera width
+              <select id="localCameraWidth" class="select">
+                <option value="640">640 px</option>
+                <option value="1280" selected>1280 px</option>
+                <option value="1920">1920 px</option>
+              </select>
+            </label>
+            <div class="camera-toggle-label"><span>Vision</span>
+              <label class="checkline"><input type="checkbox" id="visionOnVoice" checked> Let Iggy see when he hears you</label>
+            </div>
+          </div>
+          <div class="camera-stage">
+            <video id="browserVideo" autoplay playsinline muted></video>
+            <img id="localCameraPreview" alt="Local camera snapshot">
+            <canvas id="browserCanvas" hidden></canvas>
+          </div>
+          <div class="row-actions">
+            <button class="btn small" id="localSnapshot">Local Snapshot</button>
+            <button class="btn primary small" id="lookLocal">Iggy, Look (Local)</button>
+            <button class="btn primary small" id="lookBrowser">Iggy, Look (Browser)</button>
+            <button class="btn small ghost" id="saveCamera">Save Cameras</button>
+          </div>
+          <div class="conn-detail" id="cameraStatus">Checking cameras...</div>
+        </section>
+      </div>
+
+      <!-- SETUP -->
+      <div class="view" id="view-setup">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>IntelliCenter Connection</h2>
+              <p class="muted">Leave the host blank to use mDNS discovery.</p>
+            </div>
+            <span class="chip" id="connChip">--</span>
+          </div>
+          <div class="form-grid">
+            <label>Host / IP
+              <input type="text" id="icHost" placeholder="192.168.1.50">
+            </label>
+            <label>Port
+              <input type="number" id="icPort" value="6681">
+            </label>
+            <label>Transport
+              <select id="icTransport" class="select">
+                <option value="tcp">TCP 6681</option>
+                <option value="websocket">WebSocket 6680</option>
+              </select>
+            </label>
+            <label>Timezone
+              <input type="text" id="timezone" placeholder="America/New_York">
+            </label>
+          </div>
+          <label class="checkline"><input type="checkbox" id="icDiscovery" checked> Discover the panel with mDNS</label>
+          <label class="checkline"><input type="checkbox" id="icApplyPool" checked> Apply pool mode when the panel connects</label>
+          <div class="row-actions">
+            <button class="btn primary" id="saveSettings">Save &amp; Reconnect</button>
+            <button class="btn small ghost" id="refreshInventory">Refresh Inventory</button>
+          </div>
+          <div class="conn-detail" id="icAddress">Panel: --</div>
+          <div class="conn-detail" id="connStatus">Not connected</div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Raspberry Pi &amp; AI</h2>
+              <p class="muted">Addresses and the AI key used by Iggy and the always-on microphone.</p>
+            </div>
+          </div>
+          <div class="conn-detail" id="piAddress">Checking Raspberry Pi address...</div>
+          <div class="form-grid">
+            <label>AI provider
+              <select id="aiProvider" class="select">
+                <option value="auto">Auto-detect</option>
+                <option value="google">Google Gemini</option>
+                <option value="opencode-go">OpenCode Go</option>
+                <option value="opencode">OpenCode Console</option>
+              </select>
+            </label>
+            <label>OpenCode / Google API key
+              <input type="password" id="voiceKey" placeholder="Paste an API key to replace the stored one">
+            </label>
+          </div>
+          <div class="conn-detail" id="aiKeyHint">No AI key configured</div>
+          <div class="row-actions">
+            <button class="btn small" id="saveKey">Save in browser</button>
+            <button class="btn small ghost" id="saveServerKey">Save on server</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Circuit Mapping</h2>
+              <p class="muted">Friendly circuit names resolved on the live panel. Edit names in config.json if yours differ.</p>
+            </div>
+          </div>
+          <div class="mapping-list" id="mappingList"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Alexa Skill</h2>
+              <p class="muted">Point an Alexa Smart Home skill at <code>/alexa</code> on this host.</p>
+            </div>
+            <label class="switch inline">
+              <input type="checkbox" id="alexaEnabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="form-grid">
+            <label>Skill name
+              <input type="text" id="alexaSkillName" placeholder="Shobots Pool">
+            </label>
+            <label>Alexa token
+              <input type="password" id="alexaToken" placeholder="Optional shared token">
+            </label>
+          </div>
+          <div class="conn-detail" id="alexaEndpoint">Endpoint: --</div>
+          <div class="row-actions">
+            <button class="btn primary small" id="saveAlexa">Save Alexa Settings</button>
+          </div>
+          <div class="alexa-list" id="alexaList">Loading devices...</div>
+        </section>
+      </div>
+    </section>
+
+    <!-- RIGHT: 3D visualization, upper right -->
+    <aside class="viz-column">
+      <section class="viz-card">
+        <div class="viz-head">
+          <div>
+            <h2>Pool &amp; Spa</h2>
+            <span class="muted" id="vizHint">Drag to orbit &middot; scroll to zoom</span>
+          </div>
+          <span class="chip live" id="vizMode">POOL</span>
+        </div>
+        <div class="viz-canvas-wrap">
+          <canvas id="poolCanvas"></canvas>
+          <div class="iguana-bubble" id="iguanaBubble">
+            <div class="iguana-name">IGGY THE IGUANA</div>
+            <div class="iguana-line" id="iguanaLine">I&rsquo;ve got one eye on the pool and one on the firebaskets.</div>
+          </div>
+          <div class="viz-info" id="vizInfo">
+            <div class="viz-info-row"><span>Mode</span><b id="infoMode">Pool</b></div>
+            <div class="viz-info-row"><span>Pool / Spa</span><b id="infoTemps">-- / --</b></div>
+            <div class="viz-info-row"><span>Salt</span><b id="infoSalt">--</b></div>
+            <div class="viz-info-row"><span>Main VSR</span><b id="infoMain">--</b></div>
+            <div class="viz-info-row"><span>Features VSR</span><b id="infoFeatures">--</b></div>
+            <div class="viz-info-row"><span>Lights</span><b id="infoLights">--</b></div>
+            <div class="viz-info-row"><span>Heater</span><b id="infoHeater">--</b></div>
+            <div class="viz-info-row"><span>Water features</span><b id="infoWater">--</b></div>
+            <div class="viz-info-row"><span>Valves</span><b id="infoValves">--</b></div>
+          </div>
+          <div class="viz-legend">
+            <span><i class="dot water"></i> water</span>
+            <span><i class="dot fire"></i> fire</span>
+            <span><i class="dot led"></i> LED</span>
+          </div>
+        </div>
+        <div class="viz-stats">
+          <div><span>Pool</span><strong id="vizPool">--</strong></div>
+          <div><span>Spa</span><strong id="vizSpa">--</strong></div>
+          <div><span>Main</span><strong id="vizMain">--</strong></div>
+          <div><span>Features</span><strong id="vizFeatures">--</strong></div>
+        </div>
+      </section>
+
+      <section class="card quick-card">
+        <div class="card-head">
+          <div>
+            <h2>Quick Scene</h2>
+            <p class="muted">One-tap combinations.</p>
+          </div>
+        </div>
+        <div class="scene-grid">
+          <button class="scene" data-scene="evening">Evening Pool</button>
+          <button class="scene" data-scene="spa">Spa Escape</button>
+          <button class="scene" data-scene="show">Water &amp; Fire Show</button>
+          <button class="scene" data-scene="off">Everything Off</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast"></div>
+  <script src="pool3d.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+</body>
+</html>

@@ -32,39 +32,30 @@
     },
     "deck_jets": {
       "ne": {
-        "water": "DECK JET NE",
-        "light": "DECK JET NE LIGHT",
-        "thumper": "DECK JET NE THUMPER"
+        "water": "NE Floor Jet"
       },
       "nw": {
-        "water": "DECK JET NW",
-        "light": "DECK JET NW LIGHT",
-        "thumper": "DECK JET NW THUMPER"
+        "water": "NW Floor Jet"
       },
       "se": {
-        "water": "DECK JET SE",
-        "light": "DECK JET SE LIGHT",
-        "thumper": "DECK JET SE THUMPER"
+        "water": "SE Floor Jet"
       },
       "sw": {
-        "water": "DECK JET SW",
-        "light": "DECK JET SW LIGHT",
-        "thumper": "DECK JET SW THUMPER"
+        "water": "SW Floor Jet"
       }
     },
     "firebaskets": {
       "east": {
-        "burner": "FIREBASKET EAST",
-        "water": "FIREBASKET EAST WATER",
-        "spillway_pool_led": "FIREBASKET EAST POOL LED",
-        "spillway_spa_led": "FIREBASKET EAST SPA LED"
+        "water": "Pool Fountain E",
+        "spa_water": "Spa Fountain E"
       },
       "west": {
-        "burner": "FIREBASKET WEST",
-        "water": "FIREBASKET WEST WATER",
-        "spillway_pool_led": "FIREBASKET WEST POOL LED",
-        "spillway_spa_led": "FIREBASKET WEST SPA LED"
+        "water": "Pool Fountain W",
+        "spa_water": "Spa Fountain W"
       }
+    },
+    "blower": {
+      "circuit": "Blower"
     },
     "lights": {
       "pool": "POOL LIGHT",
@@ -79,7 +70,10 @@
     "mode": "pool",
     "main_rpm": 2200,
     "features_rpm": 2800,
-    "pool_setpoint": 84
+    "pool_setpoint": 84,
+    "salt_ppm": 3200,
+    "light_effect": "BLUER",
+    "spillway_effect": "REDR"
   },
   "schedule": {
     "enabled": true,
@@ -87,7 +81,15 @@
     "runs": [
       {
         "name": "Main VSR daytime",
-        "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        "days": [
+          "mon",
+          "tue",
+          "wed",
+          "thu",
+          "fri",
+          "sat",
+          "sun"
+        ],
         "start": "08:00",
         "end": "18:00",
         "rpm": 2200
@@ -97,5 +99,38 @@
   "alexa": {
     "enabled": true,
     "skill_name": "Shobots Pool"
+  },
+  "assistant": {
+    "personality": "classic",
+    "personality_custom": "",
+    "browser_voice": "",
+    "server_voice": "us",
+    "rate": 1.02,
+    "pitch": 1.06
+  },
+  "audio": {
+    "local": {
+      "input_device": "default",
+      "output_device": "default",
+      "speech_rms": 650,
+      "silence_ms": 900,
+      "min_speech_ms": 350,
+      "max_record_seconds": 8
+    },
+    "browser": {
+      "mic_device": "",
+      "speaker_device": "",
+      "voice_source": "browser"
+    }
+  },
+  "camera": {
+    "local": {
+      "device": "auto",
+      "width": 1280,
+      "vision_on_voice": true
+    },
+    "browser": {
+      "device": ""
+    }
   }
 }

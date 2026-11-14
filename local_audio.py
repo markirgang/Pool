@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+"""Local microphone and speaker support for the Pool server.
+
+The Raspberry Pi microphone is always listening and the Pi speaker always
+speaks Iggy's replies. Browser microphone/speaker selections are additive;
+they never replace the local hardware.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import os
+import re
+import shutil
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import wave
+from typing import Any, Callable
+
+LOG = logging.getLogger("pool.audio")
+
+VOICE_PROFILES = {
+    "us": {"name": "Iggy (US)", "lang": "en", "tld": "com", "slow": False},
+    "uk": {"name": "Iggy (British)", "lang": "en", "tld": "co.uk", "slow": False},
+    "au": {"name": "Iggy (Aussie)", "lang": "en", "tld": "com.au", "slow": False},
+    "ca": {"name": "Iggy (Canadian)", "lang": "en", "tld": "ca", "slow": False},
+    "ie": {"name": "Iggy (Irish)", "lang": "en", "tld": "ie", "slow": False},
+    "in": {"name": "Iggy (Indian)", "lang": "en", "tld": "co.in", "slow": False},
+    "za": {"name": "Iggy (South African)", "lang": "en", "tld": "co.za", "slow": False},
+    "us-slow": {"name": "Iggy (US, slow)", "lang": "en", "tld": "com", "slow": True},
+    "uk-slow": {"name": "Iggy (British, slow)", "lang": "en", "tld": "co.uk", "slow": True},
+}
+
+_CARD_RE = re.compile(
+    r"card\s+(\d+):\s+([^\[]+)\[([^\]]+)\],\s+device\s+(\d+):\s+([^\[]+)\[([^\]]+)\]"
+)
+
+
+def _rms(data: bytes) -> int:
+    """RMS of signed 16-bit little-endian PCM without the removed audioop module."""
+    count = len(data) // 2
+    if count <= 0:
+        return 0
+    total = 0
+    for (value,) in struct.iter_unpack("<h", data[: count * 2]):
+        total += value * value
+    return int((total / count) ** 0.5)
+
+
+def _parse_devices(output: str, kind: str) -> list[dict[str, str]]:
+    devices = [{"id": "default", "name": "System default", "kind": kind}]
+    for match in _CARD_RE.finditer(output or ""):
+        card, card_name, card_desc, device, dev_name, dev_desc = match.groups()
+        label = "%s %s - %s" % (
+            card_name.strip(),
+            card_desc.strip(),
+            dev_desc.strip() or dev_name.strip(),
+        )
+        devices.append({
+            "id": "plughw:%s,%s" % (card, device),
+            "name": label,
+            "kind": kind,
+        })
+    return devices
+
+
+class LocalAudio:
+    """Always-on local mic/speaker plus device and voice discovery."""
+
+    def __init__(
+        self,
+        config: dict[str, Any],
+        get_api_key: Callable[[], str],
+        process_audio: Callable[[bytes, str], dict[str, Any] | None],
+    ) -> None:
+        self.config = config
+        self.get_api_key = get_api_key
+        self.process_audio = process_audio
+        self._stop = threading.Event()
+        self._mic_thread: threading.Thread | None = None
+        self._mic_proc: subprocess.Popen | None = None
+        self._speak_lock = threading.Lock()
+        self._cache: dict[tuple[str, str], bytes] = {}
+        self._speaking_until = 0.0
+        self._last_error = ""
+        self._last_heard = 0.0
+        self._last_spoken = 0.0
+        self._active_input = ""
+        self._active_output = ""
+        self._last_status: dict[str, Any] = {}
+
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
+    def _local_cfg(self) -> dict[str, Any]:
+        return (self.config.get("audio") or {}).get("local") or {}
+
+    def _assistant_cfg(self) -> dict[str, Any]:
+        return self.config.get("assistant") or {}
+
+    def reconfigure(self) -> None:
+        self._cache.clear()
+        self._last_status = {}
+
+    def status(self) -> dict[str, Any]:
+        mic_ok = bool(shutil.which("arecord"))
+        speaker_ok = bool(shutil.which("aplay") and shutil.which("ffmpeg"))
+        return {
+            "mic_available": mic_ok,
+            "speaker_available": speaker_ok,
+            "mic_running": bool(self._mic_thread and self._mic_thread.is_alive()),
+            "speaking": self.is_speaking(),
+            "input_device": self._active_input or self._local_cfg().get("input_device", "default"),
+            "output_device": self._active_output or self._local_cfg().get("output_device", "default"),
+            "last_error": self._last_error,
+            "last_heard": self._last_heard,
+            "last_spoken": self._last_spoken,
+        }
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+    def start(self) -> None:
+        if not shutil.which("arecord"):
+            self._last_error = "arecord is not installed"
+            LOG.warning("Local microphone disabled: arecord is not installed")
+            return
+        if self._mic_thread and self._mic_thread.is_alive():
+            return
+        self._stop.clear()
+        self._mic_thread = threading.Thread(target=self._mic_loop, name="local-mic", daemon=True)
+        self._mic_thread.start()
+        LOG.info("Local microphone listening (always on)")
+
+    def stop(self) -> None:
+        self._stop.set()
+        proc = self._mic_proc
+        if proc:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        if self._mic_thread:
+            self._mic_thread.join(timeout=2.0)
+
+    # ------------------------------------------------------------------
+    # Device discovery
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _command_output(command: list[str]) -> str:
+        try:
+            return subprocess.run(
+                command, capture_output=True, text=True, timeout=4.0
+            ).stdout
+        except Exception:
+            return ""
+
+    def _resolve_input(self, device: str) -> str:
+        if device and device != "default":
+            return device
+        captures = _parse_devices(
+            self._command_output(["arecord", "-l"]), "input"
+        ) if shutil.which("arecord") else []
+        return captures[1]["id"] if len(captures) > 1 else device
+
+    def _resolve_output(self, device: str) -> str:
+        return device or "default"
+
+    def _output_candidates(self) -> list[str]:
+        configured = str(self._local_cfg().get("output_device") or "default")
+        playbacks = [
+            item["id"] for item in _parse_devices(
+                self._command_output(["aplay", "-l"]), "output"
+            )
+        ] if shutil.which("aplay") else []
+        candidates = []
+        if configured and configured != "default":
+            candidates.append(configured)
+        if "default" not in candidates:
+            candidates.append("default")
+        for device in playbacks:
+            if device not in candidates:
+                candidates.append(device)
+        return candidates
+
+    def devices(self) -> dict[str, Any]:
+        captures = _parse_devices(
+            self._command_output(["arecord", "-l"]), "input"
+        ) if shutil.which("arecord") else []
+        playbacks = _parse_devices(
+            self._command_output(["aplay", "-l"]), "output"
+        ) if shutil.which("aplay") else []
+        return {
+            "inputs": captures,
+            "outputs": playbacks,
+            "voices": [
+                {"id": key, "name": value["name"]}
+                for key, value in VOICE_PROFILES.items()
+            ],
+            "local": self.status(),
+        }
+
+    # ------------------------------------------------------------------
+    # Microphone loop
+    # ------------------------------------------------------------------
+    def _mic_loop(self) -> None:
+        cfg = self._local_cfg()
+        device = self._resolve_input(str(cfg.get("input_device") or "default"))
+        rate = 16000
+        frame_seconds = 0.1
+        frame_bytes = int(rate * 2 * frame_seconds)
+        while not self._stop.is_set():
+            cfg = self._local_cfg()
+            wanted = self._resolve_input(str(cfg.get("input_device") or "default"))
+            if wanted != device:
+                device = wanted
+            cmd = [
+                "arecord", "-q", "-D", device, "-f", "S16_LE",
+                "-r", str(rate), "-c", "1", "-t", "raw",
+            ]
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+                )
+            except Exception as exc:
+                self._last_error = "Microphone open failed: %s" % exc
+                LOG.warning(self._last_error)
+                self._stop.wait(3.0)
+                continue
+            self._mic_proc = proc
+            self._active_input = device
+            LOG.info("Local microphone open on %s", device)
+            threshold = int(cfg.get("speech_rms", 450))
+            silence_needed = int(cfg.get("silence_ms", 900)) / 1000.0
+            min_speech = int(cfg.get("min_speech_ms", 350)) / 1000.0
+            max_record = int(cfg.get("max_record_seconds", 8))
+            pre_roll: list[bytes] = []
+            frames: list[bytes] = []
+            speech_seconds = 0.0
+            silence_seconds = 0.0
+            in_speech = False
+            while not self._stop.is_set():
+                data = proc.stdout.read(frame_bytes) if proc.stdout else b""
+                if not data:
+                    self._last_error = "Microphone stream ended"
+                    break
+                if self.is_speaking():
+                    pre_roll.clear()
+                    frames = []
+                    in_speech = False
+                    speech_seconds = 0.0
+                    silence_seconds = 0.0
+                    continue
+                voiced = _rms(data) >= threshold
+                if voiced:
+                    if not in_speech:
+                        in_speech = True
+                        frames = list(pre_roll)
+                        speech_seconds = frame_seconds * len(frames)
+                        silence_seconds = 0.0
+                    frames.append(data)
+                    speech_seconds += frame_seconds
+                elif in_speech:
+                    frames.append(data)
+                    silence_seconds += frame_seconds
+                    if silence_seconds >= silence_needed:
+                        if speech_seconds >= min_speech:
+                            self._finish_capture(frames, rate)
+                        frames = []
+                        in_speech = False
+                        speech_seconds = 0.0
+                        silence_seconds = 0.0
+                else:
+                    pre_roll.append(data)
+                    if len(pre_roll) > 4:
+                        pre_roll.pop(0)
+                if in_speech and speech_seconds + silence_seconds > max_record:
+                    self._finish_capture(frames, rate)
+                    frames = []
+                    in_speech = False
+                    speech_seconds = 0.0
+                    silence_seconds = 0.0
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            self._mic_proc = None
+            if not self._stop.is_set():
+                self._stop.wait(1.5)
+
+    def _finish_capture(self, frames: list[bytes], rate: int) -> None:
+        if not frames:
+            return
+        raw = b"".join(frames)
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(rate)
+            wav.writeframes(raw)
+        audio = buffer.getvalue()
+        if not self.get_api_key():
+            self._last_error = "Local mic is listening; add a server Gemini key to transcribe"
+            return
+        self._last_heard = time.time()
+        try:
+            self.process_audio(audio, "audio/wav")
+        except Exception as exc:
+            self._last_error = "Local voice request failed: %s" % exc
+            LOG.exception(self._last_error)
+
+    # ------------------------------------------------------------------
+    # Speaker
+    # ------------------------------------------------------------------
+    def is_speaking(self) -> bool:
+        return time.time() < self._speaking_until
+
+    def synthesize(self, text: str, voice_id: str | None = None) -> tuple[bytes | None, str]:
+        clean = (text or "").strip()
+        if not clean:
+            return None, ""
+        profile = VOICE_PROFILES.get(str(voice_id or "").strip() or "us", VOICE_PROFILES["us"])
+        key = (clean, str(voice_id or "us"))
+        cached = self._cache.get(key)
+        if cached:
+            return cached, "audio/mpeg"
+        try:
+            from gtts import gTTS
+        except Exception:
+            self._last_error = "gTTS is not installed"
+            return None, ""
+        try:
+            audio = io.BytesIO()
+            gTTS(
+                text=clean,
+                lang=profile["lang"],
+                tld=profile["tld"],
+                slow=bool(profile["slow"]),
+            ).write_to_fp(audio)
+            data = audio.getvalue()
+            if len(self._cache) > 32:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[key] = data
+            return data, "audio/mpeg"
+        except Exception as exc:
+            self._last_error = "Speech synthesis failed: %s" % exc
+            LOG.warning(self._last_error)
+            return None, ""
+
+    def play(self, data: bytes, mime: str = "audio/mpeg", text: str = "") -> None:
+        if not data or not shutil.which("aplay"):
+            return
+        self._speaking_until = max(self._speaking_until, time.time() + 2.0)
+        thread = threading.Thread(
+            target=self._play_blocking, args=(data, mime), name="local-speaker", daemon=True
+        )
+        thread.start()
+        if text:
+            self._last_spoken = time.time()
+
+    def _play_blocking(self, data: bytes, mime: str) -> None:
+        if not self._speak_lock.acquire(blocking=False):
+            return
+        mp3_path = wav_path = None
+        try:
+            suffix = ".mp3" if "mpeg" in (mime or "") or "mp3" in (mime or "") else ".wav"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
+                fh.write(data)
+                mp3_path = fh.name
+            wav_path = mp3_path.rsplit(".", 1)[0] + ".wav"
+            convert = subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", mp3_path, wav_path],
+                capture_output=True, timeout=30.0,
+            )
+            if convert.returncode != 0 or not os.path.exists(wav_path):
+                self._last_error = "ffmpeg could not decode speech audio"
+                return
+            duration = 0.0
+            try:
+                with wave.open(wav_path, "rb") as wav:
+                    rate = wav.getframerate() or 1
+                    duration = wav.getnframes() / float(rate)
+            except Exception:
+                pass
+            self._speaking_until = time.time() + max(1.0, duration + 0.4)
+            failures = []
+            played = False
+            for device in self._output_candidates():
+                result = subprocess.run(
+                    ["aplay", "-q", "-D", device, wav_path],
+                    capture_output=True, timeout=max(15.0, duration + 10.0),
+                )
+                if result.returncode == 0:
+                    self._active_output = device
+                    self._last_error = ""
+                    played = True
+                    break
+                detail = (result.stderr or b"").decode("utf-8", "replace").strip()
+                failures.append("%s: %s" % (device, detail))
+            if not played:
+                self._last_error = "Local speakers unavailable: " + "; ".join(failures)
+                LOG.warning(self._last_error)
+        except Exception as exc:
+            self._last_error = "Local speaker failed: %s" % exc
+            LOG.warning(self._last_error)
+        finally:
+            self._speaking_until = time.time() + 0.4
+            for path in (mp3_path, wav_path):
+                if path and os.path.exists(path):
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+            self._speak_lock.release()

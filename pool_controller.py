@@ -1,0 +1,891 @@
+#!/usr/bin/env python3
+"""High-level pool and spa control logic.
+
+Translates the Pool UI / voice assistant / Alexa intents into IntelliCenter
+circuit writes, keeps an optimistic logical model for the 3D UI, and runs the
+main variable-speed pump schedule.
+"""
+
+from __future__ import annotations
+
+import copy
+import datetime as dt
+import logging
+import threading
+import time
+from typing import Any, Callable
+from zoneinfo import ZoneInfo
+
+LOG = logging.getLogger("pool.controller")
+
+try:
+    from pyintellicenter import LIGHT_EFFECTS, HeaterType
+
+    LIGHT_EFFECTS = dict(LIGHT_EFFECTS)
+except Exception:  # pragma: no cover
+    HeaterType = None
+    LIGHT_EFFECTS = {
+        "SAMMOD": "SAm", "PARTY": "Party Mode", "CARIB": "Caribbean",
+        "SSET": "Sunset", "ROMAN": "Romance", "AMERCA": "American",
+        "ROYAL": "Royal", "WHITER": "White", "REDR": "Red", "BLUER": "Blue",
+        "GREENR": "Green", "MAGNTAR": "Magenta",
+    }
+
+DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+FEATURE_LABELS = {
+    "ne": "NE Floor Jet", "nw": "NW Floor Jet",
+    "se": "SE Floor Jet", "sw": "SW Floor Jet",
+}
+FIREBASKET_LABELS = {"east": "East Firebasket", "west": "West Firebasket"}
+FIREBASKET_FOUNTAIN_LABELS = {
+    "east": ("Pool Fountain E", "Spa Fountain E"),
+    "west": ("Pool Fountain W", "Spa Fountain W"),
+}
+
+
+class PoolController:
+    """Logical equipment model and IntelliCenter command dispatcher."""
+
+    def __init__(self, config: dict[str, Any], bridge: Any,
+                 save_config: Callable[[dict], None] | None = None) -> None:
+        self.config = config
+        self.bridge = bridge
+        self.save_config = save_config or (lambda cfg: None)
+        self.lock = threading.RLock()
+        self._objtypes: dict[str, str] = {}
+        self._startup_applied = False
+        self._last_schedule_active: bool | None = None
+        self._last_schedule_key: str | None = None
+        self._last_message = ""
+        self._last_message_at = 0.0
+        self._stop = False
+        self._thread: threading.Thread | None = None
+
+        defaults = config.get("defaults", {})
+        self._default_rpm = int(defaults.get("main_rpm", 2200))
+        self._features_rpm = int(defaults.get("features_rpm", 2800))
+        self._pool_setpoint = int(defaults.get("pool_setpoint", 84))
+        self._salt_ppm = int(defaults.get("salt_ppm", 3200))
+        self._default_effect = str(defaults.get("light_effect", "BLUER")).upper()
+        if self._default_effect not in LIGHT_EFFECTS:
+            self._default_effect = "BLUER"
+        self._spillway_effect = str(defaults.get("spillway_effect", "BLUER")).upper()
+        if self._spillway_effect not in LIGHT_EFFECTS:
+            self._spillway_effect = "BLUER"
+
+        self.state_data: dict[str, Any] = {
+            "mode": defaults.get("mode", "pool"),
+            "bodies": {
+                "pool": {"temp": None, "setpoint": self._pool_setpoint, "heating": False},
+                "spa": {"temp": None, "setpoint": 102, "heating": False},
+            },
+            "pumps": {
+                "main": {"on": False, "rpm": self._default_rpm},
+                "features": {"on": False, "rpm": self._features_rpm},
+            },
+            "deck_jets": {
+                jet: {"on": False, "light": False, "thumper": True}
+                for jet in FEATURE_LABELS
+            },
+            "firebaskets": {
+                basket: {
+                    "on": False, "water": False, "spa_water": False,
+                    "spillway_pool_led": False, "spillway_spa_led": False,
+                }
+                for basket in FIREBASKET_LABELS
+            },
+            "blower": {"on": False},
+            "lights": {
+                "pool": {"on": False, "effect": self._default_effect},
+                "spa": {"on": False, "effect": self._default_effect},
+            },
+            "spillway_effect": self._spillway_effect,
+            "chemistry": {"salt": self._salt_ppm, "source": "configured"},
+            "heater": {"on": False, "setpoint": self._pool_setpoint},
+        }
+        self._apply_mode_derived_locks()
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._tick_loop, name="pool-schedule",
+                                        daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop = True
+
+    def _tick_loop(self) -> None:
+        while not self._stop:
+            try:
+                self.tick()
+            except Exception:
+                LOG.exception("Pool controller tick failed")
+            time.sleep(10)
+
+    def tick(self) -> None:
+        if self.bridge.connected and not self._startup_applied:
+            self._startup_applied = True
+            if self.config.get("intellicenter", {}).get("apply_pool_mode_on_start", True):
+                self.set_mode(self.config.get("defaults", {}).get("mode", "pool"),
+                              reason="startup")
+        self._merge_panel_state()
+        self._run_schedule()
+
+    # ------------------------------------------------------------------
+    # State snapshot
+    # ------------------------------------------------------------------
+    def state(self) -> dict[str, Any]:
+        with self.lock:
+            data = copy.deepcopy(self.state_data)
+            schedule = self._schedule_status()
+            resolved = self.bridge.resolved()
+            inventory = self.bridge.inventory()
+            connection = self.bridge.status()
+            mode = data["mode"]
+            active_body = "spa" if mode == "spa" else "pool"
+            data["mode"] = mode
+            data["active_body"] = active_body
+            data["modes"] = {"pool": mode == "pool", "spa": mode == "spa"}
+            data["valves"] = self._valves_for_mode(mode)
+            data["heater"]["active"] = data["heater"]["on"]
+            data["heater"]["heating"] = bool(
+                data["bodies"].get(active_body, {}).get("heating")
+            )
+            data["schedule"] = schedule
+            data["connection"] = connection
+            data["light_effects"] = LIGHT_EFFECTS
+            data["resolved"] = resolved
+            data["inventory"] = {
+                "circuits": inventory.get("circuits", []),
+                "pumps": inventory.get("pumps", []),
+                "pump_circuits": inventory.get("pump_circuits", []),
+                "bodies": inventory.get("bodies", []),
+                "heaters": inventory.get("heaters", []),
+                "chemistry": inventory.get("chemistry", []),
+                "valves": inventory.get("valves", []),
+                "system": inventory.get("system"),
+                "updated": inventory.get("updated"),
+            }
+            data["labels"] = {
+                "deck_jets": FEATURE_LABELS,
+                "firebaskets": FIREBASKET_LABELS,
+            }
+            data["last_message"] = self._last_message
+            data["last_message_at"] = self._last_message_at
+            data["time"] = time.time()
+            data["local_time"] = self._now().strftime("%Y-%m-%d %H:%M:%S")
+            return data
+
+    def _schedule_status(self) -> dict[str, Any]:
+        cfg = self.config.get("schedule", {})
+        active_run = self._active_run(self._now())
+        return {
+            "enabled": bool(cfg.get("enabled", True)),
+            "apply_at_startup": bool(cfg.get("apply_at_startup", False)),
+            "runs": copy.deepcopy(cfg.get("runs", [])),
+            "active": bool(active_run),
+            "active_run": active_run.get("name") if active_run else None,
+            "next": self._next_run_text(),
+        }
+
+    # ------------------------------------------------------------------
+    # Command entry point
+    # ------------------------------------------------------------------
+    def command(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        action = (action or "").strip().lower()
+        try:
+            if action == "set_mode":
+                return self.set_mode(payload.get("mode", "pool"))
+            if action == "set_pump":
+                return self.set_pump(
+                    payload.get("pump", "main"),
+                    on=payload.get("on"),
+                    rpm=payload.get("rpm"),
+                )
+            if action in ("set_deck_jet", "set_feature"):
+                if action == "set_feature":
+                    kind = payload.get("kind", "deck_jet")
+                    if kind == "firebasket":
+                        return self.set_firebasket(
+                            payload.get("id", "east"), bool(payload.get("on"))
+                        )
+                return self.set_deck_jet(
+                    payload.get("id", "ne"),
+                    on=payload.get("on"),
+                    light=payload.get("light"),
+                    thumper=payload.get("thumper"),
+                )
+            if action == "set_firebasket":
+                return self.set_firebasket(
+                    payload.get("id", "east"), bool(payload.get("on"))
+                )
+            if action == "set_all_features":
+                return self.set_all_features(bool(payload.get("on")))
+            if action == "set_blower":
+                return self.set_blower(bool(payload.get("on")))
+            if action == "set_spillway_color":
+                return self.set_spillway_color(payload.get("effect"))
+            if action == "set_light":
+                return self.set_light(
+                    payload.get("body", "pool"),
+                    on=payload.get("on"),
+                    effect=payload.get("effect"),
+                )
+            if action == "set_heater":
+                return self.set_heater(
+                    on=payload.get("on"), setpoint=payload.get("setpoint")
+                )
+            if action == "set_schedule":
+                return self.set_schedule(
+                    enabled=payload.get("enabled"), runs=payload.get("runs")
+                )
+            if action == "system_off":
+                return self.system_off()
+            if action == "refresh":
+                self._merge_panel_state()
+                return self._result(True, "State refreshed")
+            return self._result(False, "Unknown action: %s" % action)
+        except Exception as exc:
+            LOG.exception("Command failed: %s %s", action, payload)
+            return self._result(False, str(exc))
+
+    # ------------------------------------------------------------------
+    # Mode / valves
+    # ------------------------------------------------------------------
+    def set_mode(self, mode: str, reason: str = "mode") -> dict[str, Any]:
+        mode = "spa" if str(mode).lower() == "spa" else "pool"
+        with self.lock:
+            self.state_data["mode"] = mode
+            self._apply_mode_derived_locks()
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            modes = resolved.get("modes", {})
+            if modes.get("pool"):
+                self._power(changes, modes["pool"], mode == "pool")
+            if modes.get("spa"):
+                self._power(changes, modes["spa"], mode == "spa")
+
+            main = resolved.get("pumps", {}).get("main")
+            if main:
+                self._power(changes, main, True)
+            self.state_data["pumps"]["main"]["on"] = True
+            program = resolved.get("pump_programs", {}).get("main")
+            self._speed(changes, program, self.state_data["pumps"]["main"]["rpm"])
+
+            if self.state_data["heater"]["on"]:
+                self._heater_changes(changes, resolved)
+
+        ok, msg = self._send(changes, reason)
+        return self._result(ok, "%s mode" % mode.capitalize(), msg)
+
+    def _apply_mode_derived_locks(self) -> None:
+        # IntelliCenter drives the 3-way actuators automatically. We mirror the
+        # requested valve positions for the 3D view.
+        return
+
+    def _valves_for_mode(self, mode: str) -> dict[str, Any]:
+        if mode == "spa":
+            drain = {"spa": 80, "pool": 20}
+            ret = {"pool": 80, "spa": 20}
+            label = "Spa: spa drain open, pool return open"
+        else:
+            drain = {"pool": 80, "spa": 20}
+            ret = {"spa": 80, "pool": 20}
+            label = "Pool: pool drain open, spa return open"
+        return {"drain": drain, "return": ret, "label": label}
+
+    # ------------------------------------------------------------------
+    # Pumps
+    # ------------------------------------------------------------------
+    def set_pump(self, pump: str, on: bool | None = None,
+                 rpm: int | None = None) -> dict[str, Any]:
+        pump = "features" if str(pump).lower() in ("features", "secondary", "feature") else "main"
+        with self.lock:
+            state = self.state_data["pumps"][pump]
+            if on is not None:
+                state["on"] = bool(on)
+            if rpm is not None:
+                state["rpm"] = max(450, min(3450, int(rpm)))
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            target = resolved.get("pumps", {}).get(pump)
+            if target:
+                self._power(changes, target, state["on"])
+            program = resolved.get("pump_programs", {}).get(pump)
+            self._speed(changes, program, state["rpm"])
+        ok, msg = self._send(changes, "set_%s_pump" % pump)
+        return self._result(ok, "%s pump %s at %s RPM" % (
+            pump.capitalize(), "on" if state["on"] else "off", state["rpm"]), msg)
+
+    def _ensure_features_pump(self, changes: dict[str, dict[str, Any]]) -> None:
+        any_on = any(j["on"] for j in self.state_data["deck_jets"].values()) or any(
+            f["on"] for f in self.state_data["firebaskets"].values()
+        )
+        pump = self.state_data["pumps"]["features"]
+        pump["on"] = any_on
+        resolved = self.bridge.resolved()
+        target = resolved.get("pumps", {}).get("features")
+        if target:
+            self._power(changes, target, any_on)
+        program = resolved.get("pump_programs", {}).get("features")
+        self._speed(changes, program, pump["rpm"])
+
+    # ------------------------------------------------------------------
+    # Water features
+    # ------------------------------------------------------------------
+    def set_deck_jet(self, jet: str, on: bool | None = None,
+                     light: bool | None = None,
+                     thumper: bool | None = None) -> dict[str, Any]:
+        jet = jet if jet in FEATURE_LABELS else "ne"
+        with self.lock:
+            state = self.state_data["deck_jets"][jet]
+            if on is not None:
+                state["on"] = bool(on)
+                if state["on"]:
+                    if light is None:
+                        state["light"] = True
+                    if thumper is None:
+                        state["thumper"] = True
+                else:
+                    if light is None:
+                        state["light"] = False
+            if light is not None:
+                state["light"] = bool(light)
+            if thumper is not None:
+                state["thumper"] = bool(thumper)
+
+            resolved = self.bridge.resolved()
+            spec = resolved.get("deck_jets", {}).get(jet, {})
+            changes: dict[str, dict[str, Any]] = {}
+            if spec.get("water"):
+                self._power(changes, spec["water"], state["on"])
+            if spec.get("light"):
+                self._power(changes, spec["light"], state["light"] and state["on"])
+            if spec.get("thumper"):
+                self._power(changes, spec["thumper"], state["thumper"] and state["on"])
+            self._ensure_features_pump(changes)
+
+        ok, msg = self._send(changes, "deck_jet_%s" % jet)
+        return self._result(ok, "%s %s" % (FEATURE_LABELS[jet],
+                                           "on" if state["on"] else "off"), msg)
+
+    def set_firebasket(self, basket: str, on: bool) -> dict[str, Any]:
+        basket = basket if basket in FIREBASKET_LABELS else "east"
+        on = bool(on)
+        with self.lock:
+            state = self.state_data["firebaskets"][basket]
+            state["on"] = on
+            state["water"] = on
+            state["spa_water"] = on
+            state["spillway_pool_led"] = on
+            state["spillway_spa_led"] = on
+            resolved = self.bridge.resolved()
+            spec = resolved.get("firebaskets", {}).get(basket, {})
+            changes: dict[str, dict[str, Any]] = {}
+            if spec.get("water"):
+                self._power(changes, spec["water"], on)
+            if spec.get("spa_water"):
+                self._power(changes, spec["spa_water"], on)
+            self._ensure_features_pump(changes)
+
+        ok, msg = self._send(changes, "firebasket_%s" % basket)
+        return self._result(ok, "%s %s" % (FIREBASKET_LABELS[basket],
+                                           "on" if on else "off"), msg)
+
+    def set_all_features(self, on: bool) -> dict[str, Any]:
+        on = bool(on)
+        with self.lock:
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            for jet in FEATURE_LABELS:
+                state = self.state_data["deck_jets"][jet]
+                state["on"] = on
+                state["light"] = on
+                if on:
+                    state["thumper"] = True
+                spec = resolved.get("deck_jets", {}).get(jet, {})
+                for field in ("water", "light", "thumper"):
+                    if spec.get(field):
+                        self._power(changes, spec[field], on)
+            for basket in FIREBASKET_LABELS:
+                state = self.state_data["firebaskets"][basket]
+                state.update({
+                    "on": on, "water": on, "spa_water": on,
+                    "spillway_pool_led": on, "spillway_spa_led": on,
+                })
+                spec = resolved.get("firebaskets", {}).get(basket, {})
+                for field in ("water", "spa_water"):
+                    if spec.get(field):
+                        self._power(changes, spec[field], on)
+            self._ensure_features_pump(changes)
+        ok, msg = self._send(changes, "all_features_%s" % ("on" if on else "off"))
+        return self._result(ok, "All water features %s" % ("on" if on else "off"), msg)
+
+    def set_blower(self, on: bool) -> dict[str, Any]:
+        on = bool(on)
+        with self.lock:
+            self.state_data["blower"]["on"] = on
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            target = (resolved.get("blower") or {}).get("circuit")
+            if target:
+                self._power(changes, target, on)
+        ok, msg = self._send(changes, "blower_%s" % ("on" if on else "off"))
+        return self._result(ok, "Spa air blower %s" % ("on" if on else "off"), msg)
+
+    def set_spillway_color(self, effect: str | None = None) -> dict[str, Any]:
+        effect = str(effect or "BLUER").upper()
+        if effect not in LIGHT_EFFECTS:
+            return self._result(False, "Unknown spillway color: %s" % effect)
+        with self.lock:
+            self.state_data["spillway_effect"] = effect
+            self.config.setdefault("defaults", {})["spillway_effect"] = effect
+            self.save_config(self.config)
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            for basket, spec in resolved.get("firebaskets", {}).items():
+                state = self.state_data["firebaskets"].get(basket, {})
+                if not state.get("on"):
+                    continue
+                for field in ("spillway_pool_led", "spillway_spa_led"):
+                    if spec.get(field):
+                        self._power_led(changes, spec[field], True, effect)
+        name = LIGHT_EFFECTS.get(effect, effect)
+        ok, msg = self._send(changes, "spillway_color")
+        return self._result(ok, "Spillway LEDs set to %s" % name, msg)
+
+    # ------------------------------------------------------------------
+    # Lights
+    # ------------------------------------------------------------------
+    def set_light(self, body: str, on: bool | None = None,
+                  effect: str | None = None) -> dict[str, Any]:
+        body = "spa" if str(body).lower() == "spa" else "pool"
+        with self.lock:
+            state = self.state_data["lights"][body]
+            if effect:
+                effect = str(effect).upper()
+                if effect not in LIGHT_EFFECTS:
+                    return self._result(False, "Unknown light effect: %s" % effect)
+                state["effect"] = effect
+            if on is not None:
+                state["on"] = bool(on)
+            resolved = self.bridge.resolved()
+            target = resolved.get("lights", {}).get(body)
+            changes: dict[str, dict[str, Any]] = {}
+            if target:
+                params = {"STATUS": "ON" if state["on"] else "OFF"}
+                if state["on"]:
+                    params["ACT"] = state["effect"]
+                changes[target] = params
+        name = LIGHT_EFFECTS.get(state["effect"], state["effect"])
+        ok, msg = self._send(changes, "light_%s" % body)
+        return self._result(ok, "%s light %s%s" % (
+            body.capitalize(), "on - " + name if state["on"] else "off"), msg)
+
+    # ------------------------------------------------------------------
+    # Heater
+    # ------------------------------------------------------------------
+    def set_heater(self, on: bool | None = None,
+                   setpoint: int | None = None) -> dict[str, Any]:
+        with self.lock:
+            heater = self.state_data["heater"]
+            if on is not None:
+                heater["on"] = bool(on)
+            if setpoint is not None:
+                value = max(40, min(104, int(setpoint)))
+                heater["setpoint"] = value
+                self.state_data["bodies"]["pool"]["setpoint"] = value
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            self._heater_changes(changes, resolved)
+        ok, msg = self._send(changes, "heater")
+        return self._result(ok, "Heater %s at %s F" % (
+            "on" if heater["on"] else "off", heater["setpoint"]), msg)
+
+    def _heater_changes(self, changes: dict[str, dict[str, Any]],
+                        resolved: dict[str, Any]) -> None:
+        heater = self.state_data["heater"]
+        mode = self.state_data["mode"]
+        active = "spa" if mode == "spa" else "pool"
+        active_body = resolved.get("bodies", {}).get(active)
+        other_body = resolved.get("bodies", {}).get("pool" if active == "spa" else "spa")
+        if active_body:
+            if heater["on"]:
+                mode_value = int(getattr(HeaterType, "HEATER", 2)) if HeaterType else 2
+                changes.setdefault(active_body, {}).update({
+                    "MODE": str(mode_value),
+                    "LOTMP": str(heater["setpoint"]),
+                })
+            else:
+                changes.setdefault(active_body, {}).update({"MODE": "1"})
+        if heater["on"] and other_body:
+            changes.setdefault(other_body, {}).update({"MODE": "1"})
+        device = resolved.get("heater", {}).get("device")
+        if device:
+            self._power(changes, device, heater["on"])
+
+    # ------------------------------------------------------------------
+    # Schedule
+    # ------------------------------------------------------------------
+    def set_schedule(self, enabled: bool | None = None,
+                     runs: list[dict] | None = None) -> dict[str, Any]:
+        with self.lock:
+            schedule = self.config.setdefault("schedule", {})
+            if enabled is not None:
+                schedule["enabled"] = bool(enabled)
+            if isinstance(runs, list):
+                cleaned = []
+                for run in runs:
+                    if not isinstance(run, dict):
+                        continue
+                    start = str(run.get("start", "08:00"))
+                    end = str(run.get("end", "18:00"))
+                    if not _valid_hhmm(start) or not _valid_hhmm(end):
+                        continue
+                    days = [d for d in run.get("days", DAY_NAMES)
+                            if str(d).lower()[:3] in DAY_NAMES]
+                    cleaned.append({
+                        "name": str(run.get("name") or "Main VSR run"),
+                        "days": [str(d).lower()[:3] for d in days] or DAY_NAMES,
+                        "start": start,
+                        "end": end,
+                        "rpm": max(450, min(3450, int(run.get("rpm", self._default_rpm)))),
+                    })
+                schedule["runs"] = cleaned
+            self.save_config(self.config)
+            self._last_schedule_key = None
+        return self._result(True, "Schedule saved")
+
+    def _run_schedule(self) -> None:
+        schedule = self.config.get("schedule", {})
+        if not schedule.get("enabled", True):
+            self._last_schedule_active = False
+            return
+        now = self._now()
+        run = self._active_run(now)
+        active = run is not None
+        key = None
+        if run:
+            key = "%s|%s|%s|%s" % (
+                run.get("name"), run.get("start"), run.get("end"), run.get("rpm")
+            )
+        if self._last_schedule_active is None:
+            if active:
+                self._schedule_on(run)
+            elif schedule.get("apply_at_startup"):
+                self._schedule_off()
+            self._last_schedule_active = active
+            self._last_schedule_key = key
+            return
+        if active != self._last_schedule_active or key != self._last_schedule_key:
+            if active:
+                self._schedule_on(run)
+            else:
+                self._schedule_off()
+            self._last_schedule_active = active
+            self._last_schedule_key = key
+
+    def _schedule_on(self, run: dict[str, Any]) -> None:
+        with self.lock:
+            rpm = int(run.get("rpm", self._default_rpm))
+            self.state_data["pumps"]["main"].update({"on": True, "rpm": rpm})
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            target = resolved.get("pumps", {}).get("main")
+            if target:
+                self._power(changes, target, True)
+            program = resolved.get("pump_programs", {}).get("main")
+            self._speed(changes, program, rpm)
+        ok, msg = self._send(changes, "schedule_start")
+        self._note("Schedule started main pump at %s RPM%s" % (
+            rpm, "" if ok else " (simulation)"))
+
+    def _schedule_off(self) -> None:
+        with self.lock:
+            self.state_data["pumps"]["main"]["on"] = False
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            target = resolved.get("pumps", {}).get("main")
+            if target:
+                self._power(changes, target, False)
+        ok, msg = self._send(changes, "schedule_stop")
+        self._note("Schedule stopped main pump%s" % ("" if ok else " (simulation)"))
+
+    def _active_run(self, now: dt.datetime) -> dict[str, Any] | None:
+        schedule = self.config.get("schedule", {})
+        if not schedule.get("enabled", True):
+            return None
+        day = DAY_NAMES[now.weekday()]
+        minutes = now.hour * 60 + now.minute
+        for run in schedule.get("runs", []):
+            days = [str(d).lower()[:3] for d in run.get("days", DAY_NAMES)]
+            if day not in days:
+                continue
+            start = _hhmm_minutes(run.get("start", "00:00"))
+            end = _hhmm_minutes(run.get("end", "00:00"))
+            if start is None or end is None:
+                continue
+            if start <= end:
+                if start <= minutes < end:
+                    return run
+            else:
+                if minutes >= start or minutes < end:
+                    return run
+        return None
+
+    def _next_run_text(self) -> str | None:
+        schedule = self.config.get("schedule", {})
+        if not schedule.get("enabled", True):
+            return None
+        now = self._now()
+        best = None
+        for offset in range(0, 8):
+            day_dt = now + dt.timedelta(days=offset)
+            day = DAY_NAMES[day_dt.weekday()]
+            for run in schedule.get("runs", []):
+                days = [str(d).lower()[:3] for d in run.get("days", DAY_NAMES)]
+                if day not in days:
+                    continue
+                start = _hhmm_minutes(run.get("start", "00:00"))
+                if start is None:
+                    continue
+                candidate = day_dt.replace(hour=start // 60, minute=start % 60,
+                                           second=0, microsecond=0)
+                if candidate <= now:
+                    continue
+                if best is None or candidate < best[0]:
+                    best = (candidate, run)
+        if not best:
+            return None
+        when, run = best
+        return "%s %s (%s)" % (when.strftime("%a %I:%M %p"), run.get("name", "run"),
+                               run.get("rpm", self._default_rpm))
+
+    # ------------------------------------------------------------------
+    # All off / panel merge
+    # ------------------------------------------------------------------
+    def system_off(self) -> dict[str, Any]:
+        self.set_all_features(False)
+        with self.lock:
+            self.state_data["heater"]["on"] = False
+            self.state_data["blower"]["on"] = False
+            self.state_data["lights"]["pool"]["on"] = False
+            self.state_data["lights"]["spa"]["on"] = False
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            target = (resolved.get("blower") or {}).get("circuit")
+            if target:
+                self._power(changes, target, False)
+            for body in ("pool", "spa"):
+                target = resolved.get("lights", {}).get(body)
+                if target:
+                    self._power(changes, target, False)
+            self._heater_changes(changes, resolved)
+            for pump in ("main", "features"):
+                self.state_data["pumps"][pump]["on"] = False
+                target = resolved.get("pumps", {}).get(pump)
+                if target:
+                    self._power(changes, target, False)
+        ok, msg = self._send(changes, "system_off")
+        return self._result(ok, "All pool equipment off", msg)
+
+    def _merge_panel_state(self) -> None:
+        inventory = self.bridge.inventory()
+        if not self.bridge.connected:
+            return
+        resolved = self.bridge.resolved()
+        circuits = {o["objnam"]: o for o in inventory.get("circuits", [])}
+        pumps = {o["objnam"]: o for o in inventory.get("pumps", [])}
+        programs = {o["objnam"]: o for o in inventory.get("pump_circuits", [])}
+        bodies = {o["objnam"]: o for o in inventory.get("bodies", [])}
+        with self.lock:
+            self._objtypes = {
+                o["objnam"]: o["objtype"] for o in inventory.get("objects", [])
+            }
+            modes = resolved.get("modes", {})
+            def on(objnam):
+                return objnam and circuits.get(objnam, {}).get("status") == "ON"
+
+            if on(modes.get("spa")):
+                self.state_data["mode"] = "spa"
+            elif on(modes.get("pool")):
+                self.state_data["mode"] = "pool"
+
+            for jet, spec in resolved.get("deck_jets", {}).items():
+                state = self.state_data["deck_jets"].setdefault(
+                    jet, {"on": False, "light": False, "thumper": True})
+                if spec.get("water"):
+                    state["on"] = on(spec["water"])
+                if spec.get("light"):
+                    state["light"] = on(spec["light"])
+                if spec.get("thumper"):
+                    state["thumper"] = on(spec["thumper"])
+
+            for basket, spec in resolved.get("firebaskets", {}).items():
+                state = self.state_data["firebaskets"].setdefault(
+                    basket, {"on": False, "water": False, "spa_water": False,
+                             "spillway_pool_led": False, "spillway_spa_led": False})
+                if spec.get("water"):
+                    state["water"] = on(spec["water"])
+                if spec.get("spa_water"):
+                    state["spa_water"] = on(spec["spa_water"])
+                state["spillway_pool_led"] = state["water"]
+                state["spillway_spa_led"] = state["spa_water"]
+                state["on"] = state["water"] or state["spa_water"]
+
+            blower = (resolved.get("blower") or {}).get("circuit")
+            if blower:
+                self.state_data["blower"]["on"] = on(blower)
+
+            for body, objnam in resolved.get("lights", {}).items():
+                state = self.state_data["lights"].setdefault(
+                    body, {"on": False, "effect": "PARTY"})
+                circuit = circuits.get(objnam)
+                if circuit:
+                    state["on"] = circuit.get("status") == "ON"
+                    effect = circuit["attrs"].get("USE") or circuit["attrs"].get("ACT")
+                    if effect in LIGHT_EFFECTS:
+                        state["effect"] = effect
+
+            for pump in ("main", "features"):
+                objnam = resolved.get("pumps", {}).get(pump)
+                pump_obj = pumps.get(objnam)
+                if pump_obj:
+                    self.state_data["pumps"][pump]["on"] = (
+                        pump_obj.get("status") == "10"
+                        or pump_obj["attrs"].get("STATUS") == "10"
+                    )
+                program = programs.get(resolved.get("pump_programs", {}).get(pump))
+                if program:
+                    speed = program["attrs"].get("SPEED")
+                    try:
+                        if speed:
+                            self.state_data["pumps"][pump]["rpm"] = int(speed)
+                    except (TypeError, ValueError):
+                        pass
+
+            for body in ("pool", "spa"):
+                objnam = resolved.get("bodies", {}).get(body)
+                body_obj = bodies.get(objnam)
+                if not body_obj:
+                    continue
+                attrs = body_obj["attrs"]
+                state = self.state_data["bodies"][body]
+                for key, attr in (("temp", "TEMP"), ("setpoint", "LOTMP")):
+                    try:
+                        if attrs.get(attr) not in (None, ""):
+                            state[key] = int(attrs[attr])
+                    except (TypeError, ValueError):
+                        pass
+                state["heating"] = attrs.get("HTMODE") not in (None, "0", "", "OFF")
+
+            chemistry = inventory.get("chemistry", [])
+            salt = None
+            for chem in chemistry:
+                value = chem.get("attrs", {}).get("SALT")
+                if value not in (None, ""):
+                    try:
+                        salt = int(float(value))
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            if salt is not None:
+                self.state_data["chemistry"] = {"salt": salt, "source": "panel"}
+
+            active_body = "spa" if self.state_data["mode"] == "spa" else "pool"
+            body_objnam = resolved.get("bodies", {}).get(active_body)
+            body_obj = bodies.get(body_objnam)
+            if body_obj:
+                mode = body_obj["attrs"].get("MODE")
+                self.state_data["heater"]["on"] = mode not in (None, "0", "1", "")
+                try:
+                    sp = body_obj["attrs"].get("LOTMP")
+                    if sp not in (None, ""):
+                        self.state_data["heater"]["setpoint"] = int(sp)
+                except (TypeError, ValueError):
+                    pass
+
+            if any(j["on"] for j in self.state_data["deck_jets"].values()) or any(
+                    f["on"] for f in self.state_data["firebaskets"].values()):
+                self.state_data["pumps"]["features"]["on"] = True
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _power(self, changes: dict[str, dict[str, Any]], objnam: str,
+               on: bool) -> None:
+        if not objnam:
+            return
+        objtype = self._objtypes.get(objnam)
+        if objtype == "PUMP":
+            value = "10" if on else "4"
+        else:
+            value = "ON" if on else "OFF"
+        changes.setdefault(objnam, {})["STATUS"] = value
+
+    def _power_led(self, changes: dict[str, dict[str, Any]], objnam: str,
+                   on: bool, effect: str | None = None) -> None:
+        if not objnam:
+            return
+        params = changes.setdefault(objnam, {})
+        params["STATUS"] = "ON" if on else "OFF"
+        if on and effect:
+            params["ACT"] = effect
+
+    def _speed(self, changes: dict[str, dict[str, Any]], objnam: str | None,
+               rpm: int) -> None:
+        if not objnam:
+            return
+        params = changes.setdefault(objnam, {})
+        params["SELECT"] = "RPM"
+        params["SPEED"] = str(int(rpm))
+
+    def _send(self, changes: dict[str, dict[str, Any]],
+              reason: str) -> tuple[bool, str]:
+        if not changes:
+            return True, "no panel mappings; logical state only"
+        return self.bridge.write(changes, reason)
+
+    def _result(self, ok: bool, message: str,
+                detail: str | None = None) -> dict[str, Any]:
+        if ok:
+            self._note(message)
+        else:
+            self._note(message + (": " + detail if detail else ""))
+        return {
+            "ok": bool(ok),
+            "message": message if ok else message + (": " + detail if detail else ""),
+            "detail": detail,
+            "state": self.state(),
+        }
+
+    def _note(self, message: str) -> None:
+        self._last_message = message
+        self._last_message_at = time.time()
+        LOG.info(message)
+
+    def _now(self) -> dt.datetime:
+        tzname = self.config.get("timezone")
+        try:
+            tz = ZoneInfo(tzname) if tzname else None
+        except Exception:
+            tz = None
+        return dt.datetime.now(tz)
+
+
+def _valid_hhmm(value: str) -> bool:
+    return _hhmm_minutes(value) is not None
+
+
+def _hhmm_minutes(value: Any) -> int | None:
+    try:
+        parts = str(value).split(":")
+        hour = int(parts[0])
+        minute = int(parts[1]) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour * 60 + minute

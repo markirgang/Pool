@@ -25,6 +25,7 @@ LOG = logging.getLogger("pool.intellicenter")
 try:  # pyintellicenter is optional so the UI still runs on a plain desktop.
     from pyintellicenter import (
         BODY_TYPE,
+        CHEM_TYPE,
         CIRCUIT_TYPE,
         HEATER_TYPE,
         PMPCIRC_TYPE,
@@ -51,6 +52,8 @@ SAFE_ATTRS = {
     "MAX", "MINF", "MAXF", "BODY", "LISTORD", "FEATR", "AVAIL", "ENABLE",
     "NORMAL", "TIME", "DAY", "VACFLO", "VACTIM", "SINDEX", "HNAME", "VER",
     "PROPNAME", "FREEZE", "SUPER", "BOOST",
+    "SALT", "SALINITY", "PH", "ORP", "TDS", "ALK", "CALC", "CYA",
+    "CHLOR", "CHLORREQ", "SALTREQ", "PHREQ", "ORPREQ",
 }
 
 _REDACT = {"PASSWRD", "PASSWORD", "EMAIL", "EMAIL2", "PHONE", "PHONE2", "NAME"}
@@ -136,6 +139,18 @@ class IntelliCenterBridge:
                 self.config["transport"] = transport
             self._host = self.config["host"]
         self._restart.set()
+
+    def remap(self) -> None:
+        """Re-resolve config friendly names against the current panel model."""
+        loop = self._loop
+        controller = self._controller
+        if loop is not None and controller is not None:
+            try:
+                loop.call_soon_threadsafe(
+                    lambda: self._publish_from_controller(controller)
+                )
+            except Exception:
+                LOG.debug("Unable to schedule IntelliCenter remap", exc_info=True)
 
     @property
     def connected(self) -> bool:
@@ -398,6 +413,7 @@ class IntelliCenterBridge:
         pump_circuits = pick(PMPCIRC_TYPE)
         bodies = pick(BODY_TYPE)
         heaters = pick(HEATER_TYPE)
+        chemistry = pick(CHEM_TYPE)
         valves = pick(VALVE_TYPE)
         system = None
         if getattr(controller, "system_info", None):
@@ -416,6 +432,7 @@ class IntelliCenterBridge:
             "pump_circuits": pump_circuits,
             "bodies": bodies,
             "heaters": heaters,
+            "chemistry": chemistry,
             "valves": valves,
             "updated": time.time(),
         }
@@ -485,6 +502,7 @@ class IntelliCenterBridge:
             "pump_programs": {},
             "deck_jets": {},
             "firebaskets": {},
+            "blower": {},
             "lights": {},
             "heater": {},
         }
@@ -511,6 +529,9 @@ class IntelliCenterBridge:
             }
         for body, spec in (devices.get("lights") or {}).items():
             resolved["lights"][body] = find(spec, CIRCUIT_TYPE, circuits)
+        blower = devices.get("blower") or {}
+        blower_name = blower.get("circuit") if isinstance(blower, dict) else blower
+        resolved["blower"]["circuit"] = find(blower_name, CIRCUIT_TYPE, circuits)
         heater = devices.get("heater") or {}
         resolved["heater"]["body"] = find(
             heater.get("body"), BODY_TYPE, bodies
@@ -541,6 +562,7 @@ class IntelliCenterBridge:
             "pump_circuits": [],
             "bodies": [],
             "heaters": [],
+            "chemistry": [],
             "valves": [],
             "updated": 0,
         }
