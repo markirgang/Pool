@@ -409,7 +409,7 @@
   var saltLabel = makeLabel("SALT -- ppm", "#8fe9f5");
   saltLabel.position.set(-7.5, 2.9, -1.8);
   var connStatusLabel = makeLabel("SIMULATION MODE", "#ffaa33");
-  connStatusLabel.position.set(-6.8, 2.5, 9.2);
+  connStatusLabel.position.set(-6.8, 2.5, 12.8);
 
   // ------------------------------------------------------------------
   // Deck floor jets
@@ -784,10 +784,14 @@
   var spaLamp = makeLight(new THREE.Vector3(0, 0.92, 0), spaGroup);
 
   // ------------------------------------------------------------------
-  // Equipment pad: pumps, heater, valves (South corner of the house)
+  // Equipment pad: pumps, heater, valves (touching South property line)
   // ------------------------------------------------------------------
+  var southPropertyWall = addBox(32, 1.8, 0.28, new THREE.MeshStandardMaterial({
+    color: 0xd6e0e4, roughness: 0.85
+  }), 1.0, 0.9, 14.2);
+
   var pad = new THREE.Group();
-  pad.position.set(-6.8, 0, 9.2);
+  pad.position.set(-6.8, 0, 12.8);
   scene.add(pad);
   addBoxLocal(pad, 5.4, 0.18, 2.7, new THREE.MeshStandardMaterial({
     color: 0x142b32, roughness: 0.9
@@ -1384,6 +1388,9 @@
       } else if (which === "dock") {
         controls.target.set(13.0, 0.5, 0);
         camera.position.set(19.0, 8.0, 6.0);
+      } else if (which === "pumps" || which === "pad") {
+        controls.target.set(-6.8, 0.5, 12.8);
+        camera.position.set(-2.0, 4.5, 16.5);
       } else if (which === "house") {
         controls.target.set(-9.0, 2.0, 0);
         camera.position.set(-2.0, 6.0, 10.0);

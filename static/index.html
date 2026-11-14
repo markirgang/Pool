@@ -34,6 +34,7 @@
         <button class="tab active" data-tab="control">Control</button>
         <button class="tab" data-tab="schedule">Schedule</button>
         <button class="tab" data-tab="voice">Voice</button>
+        <button class="tab" data-tab="alexa">Alexa</button>
         <button class="tab" data-tab="setup">Hardware</button>
       </nav>
 
@@ -498,17 +499,16 @@
           </div>
           <div class="conn-detail" id="piAddress">Checking Raspberry Pi address...</div>
           <div class="form-grid">
-            <label>AI provider
-              <select id="aiProvider" class="select">
-                <option value="auto">Auto-detect</option>
-                <option value="google">Google Gemini</option>
-                <option value="opencode-go">OpenCode Go</option>
-                <option value="opencode">OpenCode Console</option>
+            <label>API Key Type
+              <select id="selectApiKeyType" class="select">
+                <option value="opencode-go">OpenCode Go API Key</option>
+                <option value="google">Google Gemini API Key</option>
               </select>
             </label>
-            <label>OpenCode / Google API key
-              <input type="password" id="voiceKey" placeholder="Paste an API key to replace the stored one">
+            <label>API Key
+              <input type="password" id="voiceKey" placeholder="Paste an API key...">
             </label>
+            <input type="hidden" id="aiProvider" value="auto">
           </div>
           <div class="conn-detail" id="aiKeyHint">No AI key configured</div>
           <div class="row-actions">
@@ -527,22 +527,52 @@
           <div class="mapping-list" id="mappingList"></div>
         </section>
 
+      </div>
+
+      <!-- ALEXA SKILLS TAB -->
+      <div class="view" id="view-alexa">
         <section class="card">
           <div class="card-head">
             <div>
-              <h2>Alexa Skill</h2>
-              <p class="muted">Point an Alexa Smart Home skill at <code>/alexa</code> on this host.</p>
+              <h2>Alexa Smart Home Skill</h2>
+              <p class="muted">All endpoints that Alexa will detect upon running &ldquo;Alexa, discover devices&rdquo;.</p>
+            </div>
+            <span class="chip live" id="alexaStatusChip">READY FOR DISCOVERY</span>
+          </div>
+
+          <div class="alexa-header-banner">
+            <div class="alexa-banner-left">
+              <strong>Directive Endpoint:</strong> <code id="alexaDirectUrl">https://pool.shobots.party/alexa</code>
+            </div>
+            <div class="alexa-banner-right">
+              <button class="btn small" id="refreshAlexaBtn">Refresh Devices</button>
+            </div>
+          </div>
+
+          <div class="alexa-discovery-header">
+            <h3>Discovered Endpoints (<span id="alexaCount">17</span>)</h3>
+            <p class="muted">Each of these devices is exposed directly to Alexa with full power and feature control.</p>
+          </div>
+
+          <div class="alexa-grid" id="alexaCardGrid">
+            <!-- Populated dynamically by loadAlexa() -->
+          </div>
+
+          <div class="card-head" style="margin-top: 24px;">
+            <div>
+              <h3>Alexa Skill Configuration</h3>
+              <p class="muted">Point your AWS Lambda Smart Home forwarder at this endpoint.</p>
             </div>
             <label class="switch inline">
-              <input type="checkbox" id="alexaEnabled">
+              <input type="checkbox" id="alexaEnabled" checked>
               <span class="slider"></span>
             </label>
           </div>
           <div class="form-grid">
             <label>Skill name
-              <input type="text" id="alexaSkillName" placeholder="Shobots Pool">
+              <input type="text" id="alexaSkillName" placeholder="Lighthouse Pool">
             </label>
-            <label>Alexa token
+            <label>Alexa bearer token
               <input type="password" id="alexaToken" placeholder="Optional shared token">
             </label>
           </div>
@@ -550,9 +580,8 @@
           <div class="conn-detail" id="alexaSkillInfo">Skill: --</div>
           <div class="conn-detail" id="alexaInstructions">Enable this Smart Home skill in the Alexa app, then say "Alexa, discover devices".</div>
           <div class="row-actions">
-            <button class="btn primary small" id="saveAlexa">Save Alexa Settings</button>
+            <button class="btn primary small" id="saveAlexa">Save Skill Settings</button>
           </div>
-          <div class="alexa-list" id="alexaList">Loading devices...</div>
         </section>
       </div>
     </section>

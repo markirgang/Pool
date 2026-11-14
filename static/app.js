@@ -21,6 +21,7 @@
   var voiceList = [];
   var cameraStream = null;
   var localCameraStatus = null;
+  var DEFAULT_OPENCODE_GO_KEY = atob("QVEuQWI4Uk42SU9GSDQ4UXNyWWNLLWEzUnp0OFc5RVZiZG0yTHJWRmlnQlE1Y0RySTBjaHc=");
 
   var DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
   var DAY_LABELS = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
@@ -614,25 +615,43 @@
       if (vuAudioCtx.state === "suspended") vuAudioCtx.resume();
       if (vuSourceNode) { vuSourceNode.disconnect(); vuSourceNode = null; }
       vuAnalyser = vuAudioCtx.createAnalyser();
-      vuAnalyser.fftSize = 128;
-      vuAnalyser.smoothingTimeConstant = 0.3;
+      vuAnalyser.fftSize = 256;
       vuSourceNode = vuAudioCtx.createMediaStreamSource(stream);
       vuSourceNode.connect(vuAnalyser);
-      var pcm = new Uint8Array(vuAnalyser.frequencyBinCount);
+      var timeData = new Uint8Array(vuAnalyser.fftSize);
 
       function loop() {
         if (!vuAnalyser) return;
-        vuAnalyser.getByteFrequencyData(pcm);
+        vuAnalyser.getByteTimeDomainData(timeData);
         var sum = 0;
-        for (var i = 0; i < pcm.length; i++) sum += pcm[i];
-        var avg = sum / pcm.length;
-        var gainMult = 1.0 + (micSensitivityPercent / 45.0);
-        var lvl = Math.min(100, (avg / 128) * 100 * gainMult);
+        for (var i = 0; i < timeData.length; i++) {
+          var dev = (timeData[i] - 128) / 128.0;
+          sum += dev * dev;
+        }
+        var rms = Math.sqrt(sum / timeData.length);
+        var mult = 2.4 + (micSensitivityPercent / 30.0);
+        var lvl = Math.min(100, Math.round(rms * mult * 100));
         updateVuMeter(lvl);
         vuAnimId = requestAnimationFrame(loop);
       }
       if (vuAnimId) cancelAnimationFrame(vuAnimId);
       loop();
+    } catch (e) {}
+  }
+
+  var browserMicStream = null;
+
+  async function ensureBrowserMicMonitor() {
+    if (browserMicStream) {
+      if (vuAudioCtx && vuAudioCtx.state === "suspended") vuAudioCtx.resume();
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    try {
+      var micId = ($("browserMic") && $("browserMic").value) || "";
+      var constraints = { audio: micId ? { deviceId: { exact: micId } } : true };
+      browserMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+      startBrowserVu(browserMicStream);
     } catch (e) {}
   }
 
@@ -643,6 +662,7 @@
   }
 
   async function pollLocalAudioStatus() {
+    if (browserMicStream) return;
     if (recorder && recorder.state === "recording") return;
     try {
       var stat = await api("/api/audio/status");
@@ -674,15 +694,18 @@
       return;
     }
     try {
-      var micId = ($("browserMic") && $("browserMic").value) || "";
-      var constraints = { audio: micId ? { deviceId: { exact: micId } } : true };
-      try {
-        recStream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (micErr) {
-        recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!browserMicStream) {
+        var micId = ($("browserMic") && $("browserMic").value) || "";
+        var constraints = { audio: micId ? { deviceId: { exact: micId } } : true };
+        try {
+          browserMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (micErr) {
+          browserMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+        startBrowserVu(browserMicStream);
       }
+      recStream = browserMicStream;
       recorder = new MediaRecorder(recStream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "" });
-      startBrowserVu(recStream);
       recChunks = [];
       recorder.ondataavailable = function (e) { if (e.data && e.data.size) recChunks.push(e.data); };
       recorder.onstop = async function () {
@@ -727,8 +750,7 @@
   }
 
   function cleanupRecording() {
-    stopBrowserVu();
-    if (recStream) {
+    if (recStream && recStream !== browserMicStream) {
       recStream.getTracks().forEach(function (t) { t.stop(); });
       recStream = null;
     }
@@ -1215,6 +1237,8 @@
       $("voiceKey").placeholder = ai.configured
         ? "Default key in use (" + (ai.key_hint || "hidden") + ") - paste a new key to replace"
         : "Paste an API key";
+      var curType = localStorage.getItem("pool.apiKeyType") || (geminiKey().startsWith("AQ.") ? "opencode-go" : "google");
+      if ($("selectApiKeyType")) $("selectApiKeyType").value = curType;
 
       var alexa = config.alexa || {};
       $("alexaEnabled").checked = alexa.enabled !== false;
@@ -1367,12 +1391,31 @@
   async function loadAlexa() {
     try {
       var data = await api("/api/alexa");
-      $("alexaList").innerHTML = (data.devices || []).map(function (d) {
-        return '<div class="alexa-device"><span>' + escapeHtml(d.friendlyName) +
-          "</span><span>" + escapeHtml(d.category) + " \u00B7 " + escapeHtml(d.state) + "</span></div>";
-      }).join("");
+      var devices = data.devices || [];
+      if ($("alexaCount")) $("alexaCount").textContent = devices.length;
+      var grid = $("alexaCardGrid");
+      if (grid) {
+        grid.innerHTML = devices.map(function (d) {
+          var isPowerOn = d.state === "ON" || d.state === "HEAT";
+          var utterance = '“Alexa, turn ' + (isPowerOn ? 'off ' : 'on ') + d.friendlyName + '”';
+          return '<div class="alexa-card">' +
+            '<div class="alexa-card-head">' +
+            '<div class="alexa-card-name">' + escapeHtml(d.friendlyName) + '</div>' +
+            '<span class="alexa-cat-pill">' + escapeHtml(d.category) + '</span>' +
+            '</div>' +
+            '<div class="alexa-card-utterance">' + escapeHtml(utterance) + '</div>' +
+            '<div class="alexa-card-state ' + (isPowerOn ? 'on' : 'off') + '">' +
+            '<span class="status-dot ' + (isPowerOn ? '' : 'off') + '"></span>' +
+            '<span>State: ' + escapeHtml(d.state || 'OFF') + '</span>' +
+            '</div>' +
+            '</div>';
+        }).join("");
+      }
+      if ($("alexaDirectUrl") && data.endpoint) {
+        $("alexaDirectUrl").textContent = location.origin + data.endpoint;
+      }
     } catch (err) {
-      $("alexaList").textContent = "Alexa preview unavailable: " + err.message;
+      if ($("alexaCardGrid")) $("alexaCardGrid").textContent = "Alexa preview unavailable: " + err.message;
     }
   }
 
@@ -1427,7 +1470,9 @@
       view.classList.toggle("active", view.id === "view-" + wanted);
     });
     if (!found) return;
-    if (wanted === "setup") {
+    if (wanted === "alexa") {
+      loadAlexa();
+    } else if (wanted === "setup") {
       refreshInventory();
       loadAlexa();
     }
@@ -1554,14 +1599,40 @@
     $("scheduleRuns").addEventListener("change", function () { scheduleDirty = true; });
     $("scheduleEnabled").addEventListener("change", function () { scheduleDirty = true; });
 
+    var selApiKeyType = $("selectApiKeyType");
+    if (selApiKeyType) {
+      selApiKeyType.addEventListener("change", function (e) {
+        if (e.target.value === "opencode-go") {
+          $("voiceKey").value = DEFAULT_OPENCODE_GO_KEY;
+          $("aiProvider").value = "opencode-go";
+          localStorage.setItem("pool.geminiKey", DEFAULT_OPENCODE_GO_KEY);
+          localStorage.setItem("pool.apiKeyType", "opencode-go");
+          toast("Inserted OpenCode Go API key", "good");
+        } else if (e.target.value === "google") {
+          var userKey = localStorage.getItem("pool.userGeminiKey") || "";
+          $("voiceKey").value = userKey;
+          $("voiceKey").placeholder = "Paste Google Gemini API Key...";
+          $("aiProvider").value = "google";
+          localStorage.setItem("pool.apiKeyType", "google");
+          $("voiceKey").focus();
+        }
+      });
+      var curType = localStorage.getItem("pool.apiKeyType") || (geminiKey().startsWith("AQ.") ? "opencode-go" : "google");
+      selApiKeyType.value = curType;
+    }
+
     $("saveSettings").addEventListener("click", saveSettings);
     $("saveAlexa").addEventListener("click", saveAlexaSettings);
+    if ($("refreshAlexaBtn")) $("refreshAlexaBtn").addEventListener("click", loadAlexa);
     $("refreshInventory").addEventListener("click", refreshInventory);
     $("saveKey").addEventListener("click", function () {
       var key = $("voiceKey").value.trim();
-      if (!key) { toast("Enter an OpenCode API key first", "error"); return; }
+      if (!key) { toast("Enter an API key first", "error"); return; }
       localStorage.setItem("pool.geminiKey", key);
-      toast("OpenCode key saved in this browser", "good");
+      if (selApiKeyType && selApiKeyType.value === "google") {
+        localStorage.setItem("pool.userGeminiKey", key);
+      }
+      toast("API key saved in this browser", "good");
     });
     $("saveServerKey").addEventListener("click", saveServerKey);
     $("saveAssistant").addEventListener("click", saveAssistantSettings);
@@ -1700,9 +1771,8 @@
       refreshInventory();
     });
     polling = setInterval(refresh, 1500);
-    setInterval(function () {
-      if (Date.now() - lastAiAt > 22000 && state) renderVoiceBubble();
-    }, 6000);
+    document.addEventListener("pointerdown", ensureBrowserMicMonitor, { once: true });
+    document.addEventListener("click", ensureBrowserMicMonitor, { once: true });
   }
 
   document.addEventListener("DOMContentLoaded", init);

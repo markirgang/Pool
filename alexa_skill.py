@@ -93,9 +93,13 @@ def _endpoints() -> list[dict[str, Any]]:
                        ("se", "SE Floor Jet"), ("sw", "SW Floor Jet")):
         endpoints.append(_endpoint("deck_jet_%s" % jet, label, "SWITCH", [POWER],
                                    "Laminar floor jet"))
-    for basket, label in (("east", "East Firebasket"), ("west", "West Firebasket")):
+    for basket, label in (("east", "East Firepit"), ("west", "West Firepit")):
         endpoints.append(_endpoint("firebasket_%s" % basket, label, "SWITCH", [POWER],
-                                   "Firebasket with pool and spa fountains"))
+                                   "Firepit flame and fountains"))
+        endpoints.append(_endpoint("firebasket_%s_pool" % basket, "%s Pool Spillway" % label, "SWITCH", [POWER],
+                                   "Pool spillway on %s" % label))
+        endpoints.append(_endpoint("firebasket_%s_spa" % basket, "%s Spa Spillway" % label, "SWITCH", [POWER],
+                                   "Spa spillway on %s" % label))
     endpoints.append(_endpoint("spa_blower", "Blower", "SWITCH", [POWER],
                                "Blower"))
     return endpoints
@@ -151,8 +155,15 @@ def _power_state(endpoint_id: str, state: dict[str, Any]) -> str:
         jet = endpoint_id.rsplit("_", 1)[1]
         return "ON" if state["deck_jets"].get(jet, {}).get("on") else "OFF"
     if endpoint_id.startswith("firebasket_"):
-        basket = endpoint_id.rsplit("_", 1)[1]
-        return "ON" if state["firebaskets"].get(basket, {}).get("on") else "OFF"
+        parts = endpoint_id.split("_")
+        basket = parts[1]
+        fb_state = state["firebaskets"].get(basket, {})
+        if len(parts) > 2:
+            if parts[2] == "pool":
+                return "ON" if fb_state.get("water") else "OFF"
+            if parts[2] == "spa":
+                return "ON" if fb_state.get("spa_water") else "OFF"
+        return "ON" if (fb_state.get("on") or fb_state.get("water") or fb_state.get("spa_water")) else "OFF"
     if endpoint_id == "spa_blower":
         return "ON" if (state.get("blower") or {}).get("on") else "OFF"
     if endpoint_id.endswith("_light"):
@@ -293,8 +304,15 @@ def _handle_power(endpoint: str, on: bool, controller: Any) -> dict:
             "id": endpoint.rsplit("_", 1)[1], "on": on,
         })
     if endpoint.startswith("firebasket_"):
+        parts = endpoint.split("_")
+        basket = parts[1]
+        if len(parts) > 2:
+            if parts[2] == "pool":
+                return controller.command("set_firebasket", {"id": basket, "water": on})
+            if parts[2] == "spa":
+                return controller.command("set_firebasket", {"id": basket, "spa_water": on})
         return controller.command("set_firebasket", {
-            "id": endpoint.rsplit("_", 1)[1], "on": on,
+            "id": basket, "on": on,
         })
     if endpoint == "spa_blower":
         return controller.command("set_blower", {"on": on})

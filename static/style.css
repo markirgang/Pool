@@ -1026,3 +1026,74 @@ select option { background: #09202c; color: var(--text); }
   width: 6px;
   height: 6px;
 }
+
+/* Alexa Skills Tab Styles */
+.alexa-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.alexa-card {
+  background: rgba(8, 28, 40, 0.7);
+  border: 1px solid rgba(77, 217, 240, 0.2);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.alexa-card:hover {
+  border-color: var(--cyan);
+  transform: translateY(-2px);
+}
+.alexa-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.alexa-card-name {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #fff;
+}
+.alexa-cat-pill {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(67, 225, 232, 0.15);
+  color: var(--cyan);
+  border: 1px solid rgba(67, 225, 232, 0.4);
+}
+.alexa-card-utterance {
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-style: italic;
+}
+.alexa-card-state {
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.alexa-card-state.on {
+  color: #55efc4;
+}
+.alexa-card-state.off {
+  color: var(--muted);
+}
+.alexa-header-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(14, 40, 56, 0.6);
+  border-radius: 8px;
+  border: 1px solid rgba(77, 217, 240, 0.2);
+  margin-bottom: 16px;
+}

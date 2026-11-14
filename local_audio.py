@@ -321,6 +321,9 @@ class LocalAudio:
             wav.setframerate(rate)
             wav.writeframes(raw)
         audio = buffer.getvalue()
+        if not self._local_cfg().get("auto_transcribe", False):
+            # Local mic is active for live VU metering, but does not consume AI tokens unless auto_transcribe is enabled
+            return
         if not self.get_api_key():
             self._last_error = "Local mic is listening; add a server Gemini key to transcribe"
             return
