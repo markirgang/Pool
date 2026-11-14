@@ -863,11 +863,11 @@
   }
 
   // ------------------------------------------------------------------
-  // Iggy the iguana (sunbathing by the seawall overlooking pool and canal)
+  // Iggy the iguana (half of body and tail on the dock)
   // ------------------------------------------------------------------
   var iguana = createIguana();
-  iguana.group.position.set(8.6, 0, -0.5);
-  iguana.group.rotation.y = -2.3;
+  iguana.group.position.set(10.4, 0.12, -0.5);
+  iguana.group.rotation.y = -Math.PI;
   iguana.group.scale.setScalar(1.55);
   scene.add(iguana.group);
 
