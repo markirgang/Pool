@@ -219,7 +219,10 @@ class PoolController:
                 )
             if action == "set_firebasket":
                 return self.set_firebasket(
-                    payload.get("id", "east"), bool(payload.get("on"))
+                    payload.get("id", "east"),
+                    on=payload.get("on"),
+                    water=payload.get("water"),
+                    spa_water=payload.get("spa_water"),
                 )
             if action == "set_all_features":
                 return self.set_all_features(bool(payload.get("on")))
@@ -371,28 +374,51 @@ class PoolController:
         return self._result(ok, "%s %s" % (FEATURE_LABELS[jet],
                                            "on" if state["on"] else "off"), msg)
 
-    def set_firebasket(self, basket: str, on: bool) -> dict[str, Any]:
+    def set_firebasket(
+        self,
+        basket: str,
+        on: bool | None = None,
+        water: bool | None = None,
+        spa_water: bool | None = None,
+    ) -> dict[str, Any]:
         basket = basket if basket in FIREBASKET_LABELS else "east"
-        on = bool(on)
         with self.lock:
             state = self.state_data["firebaskets"][basket]
-            state["on"] = on
-            state["water"] = on
-            state["spa_water"] = on
-            state["spillway_pool_led"] = on
-            state["spillway_spa_led"] = on
+            if water is not None:
+                state["water"] = bool(water)
+            if spa_water is not None:
+                state["spa_water"] = bool(spa_water)
+            if on is not None:
+                state["on"] = bool(on)
+                if not on and water is None and spa_water is None:
+                    state["water"] = False
+                    state["spa_water"] = False
+            if state["water"] or state["spa_water"]:
+                state["on"] = True
+            elif on is None and not state.get("on"):
+                state["on"] = False
+
             resolved = self.bridge.resolved()
             spec = resolved.get("firebaskets", {}).get(basket, {})
             changes: dict[str, dict[str, Any]] = {}
             if spec.get("water"):
-                self._power(changes, spec["water"], on)
+                self._power(changes, spec["water"], state["water"])
             if spec.get("spa_water"):
-                self._power(changes, spec["spa_water"], on)
+                self._power(changes, spec["spa_water"], state["spa_water"])
             self._ensure_features_pump(changes)
 
         ok, msg = self._send(changes, "firebasket_%s" % basket)
-        return self._result(ok, "%s %s" % (FIREBASKET_LABELS[basket],
-                                           "on" if on else "off"), msg)
+        desc = []
+        if state["water"]:
+            desc.append("pool spillway")
+        if state["spa_water"]:
+            desc.append("spa spillway")
+        summary = " and ".join(desc) if desc else "off"
+        return self._result(
+            ok,
+            "%s: %s" % (FIREBASKET_LABELS[basket], summary),
+            msg,
+        )
 
     def set_all_features(self, on: bool) -> dict[str, Any]:
         on = bool(on)
@@ -411,14 +437,15 @@ class PoolController:
                         self._power(changes, spec[field], on)
             for basket in FIREBASKET_LABELS:
                 state = self.state_data["firebaskets"][basket]
-                state.update({
-                    "on": on, "water": on, "spa_water": on,
-                    "spillway_pool_led": on, "spillway_spa_led": on,
-                })
+                state.update({"on": on, "water": on, "spa_water": on})
                 spec = resolved.get("firebaskets", {}).get(basket, {})
                 for field in ("water", "spa_water"):
                     if spec.get(field):
                         self._power(changes, spec[field], on)
+            self.state_data["blower"]["on"] = on
+            blower = (resolved.get("blower") or {}).get("circuit")
+            if blower:
+                self._power(changes, blower, on)
             self._ensure_features_pump(changes)
         ok, msg = self._send(changes, "all_features_%s" % ("on" if on else "off"))
         return self._result(ok, "All water features %s" % ("on" if on else "off"), msg)
@@ -433,7 +460,7 @@ class PoolController:
             if target:
                 self._power(changes, target, on)
         ok, msg = self._send(changes, "blower_%s" % ("on" if on else "off"))
-        return self._result(ok, "Spa air blower %s" % ("on" if on else "off"), msg)
+        return self._result(ok, "Blower %s" % ("on" if on else "off"), msg)
 
     def set_spillway_color(self, effect: str | None = None) -> dict[str, Any]:
         effect = str(effect or "BLUER").upper()
@@ -501,8 +528,7 @@ class PoolController:
             changes: dict[str, dict[str, Any]] = {}
             self._heater_changes(changes, resolved)
         ok, msg = self._send(changes, "heater")
-        return self._result(ok, "Heater %s at %s F" % (
-            "on" if heater["on"] else "off", heater["setpoint"]), msg)
+        return self._result(ok, "Heater %s" % ("on" if heater["on"] else "off"), msg)
 
     def _heater_changes(self, changes: dict[str, dict[str, Any]],
                         resolved: dict[str, Any]) -> None:

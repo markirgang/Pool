@@ -101,16 +101,30 @@
     if (!state) return;
     var mode = state.mode || "pool";
     var conn = state.connection || {};
+    var isOnline = !!conn.connected;
     var badge = $("statusBadge");
     var statusText = $("statusText");
     if (badge) {
       badge.classList.remove("online", "offline", "simulation");
-      if (conn.connected) badge.classList.add("online");
-      else badge.classList.add("simulation");
+      badge.classList.add(isOnline ? "online" : "simulation");
     }
     if (statusText) {
-      statusText.textContent = conn.connected ? "PANEL ONLINE" : "SIMULATION";
-      statusText.title = conn.last_error || "IntelliCenter offline - UI and schedule still work";
+      statusText.textContent = isOnline ? "PANEL ONLINE" : "SIMULATION MODE";
+      statusText.title = conn.last_error || (isOnline ? "IntelliCenter connected & responding" : "Running in simulation mode (no live panel)");
+    }
+    var vizChip = $("vizConnChip");
+    if (vizChip) {
+      vizChip.textContent = isOnline ? "PANEL ONLINE" : "SIMULATION";
+      vizChip.className = "chip " + (isOnline ? "live" : "simulation");
+      vizChip.title = isOnline ? "IntelliCenter connected & responding" : "App running in simulation mode";
+    }
+    var animBanner = $("animConnBanner");
+    var animText = $("animConnText");
+    if (animBanner) {
+      animBanner.className = "viz-status-banner " + (isOnline ? "online" : "simulation");
+    }
+    if (animText) {
+      animText.textContent = isOnline ? "INTELLICENTER ONLINE" : "SIMULATION MODE";
     }
     var pill = $("modePill");
     if (pill) {
@@ -200,14 +214,10 @@
       card.classList.toggle("on", !!jet.on);
       var toggle = card.querySelector('input[data-toggle="jet"]');
       if (toggle) toggle.checked = !!jet.on;
-      var light = card.querySelector('[data-act="light"]');
-      var thumper = card.querySelector('[data-act="thumper"]');
-      if (light) light.classList.toggle("on", !!jet.light && !!jet.on);
-      if (thumper) thumper.classList.toggle("on", jet.thumper !== false && !!jet.on);
       var sub = card.querySelector(".feature-sub");
       if (sub) {
         sub.textContent = jet.on
-          ? "Running" + (jet.light ? " \u00B7 light" : "") + (jet.thumper !== false ? " \u00B7 thumper" : "")
+          ? "Running"
           : (labels[key] || key.toUpperCase() + " laminar floor jet");
       }
     });
@@ -221,16 +231,26 @@
       var basket = baskets[key] || {};
       var card = box.querySelector('[data-basket="' + key + '"]');
       if (!card) return;
-      card.classList.toggle("on", !!basket.on);
-      var toggle = card.querySelector('input[data-toggle="firebasket"]');
-      if (toggle) toggle.checked = !!basket.on;
-      var sub = card.querySelector(".feature-sub");
-      if (sub) sub.textContent = basket.on
-        ? "Pool & spa fountains flowing" : "Pool & spa fountains off";
-      var poolLed = card.querySelector('[data-led="pool"]');
-      var spaLed = card.querySelector('[data-led="spa"]');
-      if (poolLed) poolLed.classList.toggle("on", !!basket.spillway_pool_led);
-      if (spaLed) spaLed.classList.toggle("on", !!basket.spillway_spa_led);
+      card.classList.toggle("on", !!(basket.on || basket.water || basket.spa_water));
+
+      var flameToggle = card.querySelector('input[data-toggle="flame"]');
+      if (flameToggle) flameToggle.checked = !!basket.on;
+
+      var poolToggle = card.querySelector('input[data-spillway="pool"]');
+      if (poolToggle) poolToggle.checked = !!basket.water;
+
+      var spaToggle = card.querySelector('input[data-spillway="spa"]');
+      if (spaToggle) spaToggle.checked = !!basket.spa_water;
+
+      var sub = card.querySelector('[data-sub="firebasket"]') || card.querySelector(".feature-sub");
+      if (sub) {
+        var parts = [];
+        if (basket.water) parts.push("Pool");
+        if (basket.spa_water) parts.push("Spa");
+        sub.textContent = parts.length
+          ? parts.join(" & ") + " spillway flowing"
+          : (basket.on ? "Flame on \u00B7 spillways off" : "Spillways & flame off");
+      }
     });
   }
 
@@ -243,6 +263,7 @@
     if (card) card.classList.toggle("on", !!blower.on);
     var sub = $("blowerState");
     if (sub) sub.textContent = blower.on ? "Blowing" : "Off";
+    if (window.pool3d && window.pool3d.setBlower) window.pool3d.setBlower(!!blower.on);
   }
 
   function effectOptions(selected) {
@@ -274,25 +295,21 @@
       var card = document.querySelector('.light-card[data-body="' + body + '"]');
       if (card) card.classList.toggle("on", !!light.on);
     });
-    var spill = $("spillwayEffect");
-    if (spill && document.activeElement !== spill) {
-      var sel = state.spillway_effect || "BLUER";
-      var wanted2 = effectOptions(sel);
-      if (spill.innerHTML !== wanted2) spill.innerHTML = wanted2;
-    }
   }
 
   function renderHeater() {
     var heater = state.heater || {};
     var toggle = $("heaterToggle");
-    var slider = $("heaterSetpoint");
     if (toggle) toggle.checked = !!heater.on;
-    if (slider && document.activeElement !== slider && heater.setpoint) slider.value = heater.setpoint;
-    $("heaterSetpointVal").textContent = (heater.setpoint || "--") + "\u00B0F";
-    $("heaterStatus").textContent = heater.on ? "ON" : "OFF";
-    $("heaterStatus").className = "chip " + (heater.on ? "hot" : "");
-    $("heaterBodyText").textContent = "Heating the " + (state.active_body || "pool") +
-      " \u00B7 set " + (heater.setpoint || "--") + "\u00B0F";
+    if ($("heaterStatus")) {
+      $("heaterStatus").textContent = heater.on ? "ON" : "OFF";
+      $("heaterStatus").className = "chip " + (heater.on ? "hot" : "");
+    }
+    if ($("heaterBodyText")) {
+      $("heaterBodyText").textContent = heater.on
+        ? "Heating the " + (state.active_body || "active body") + " (On)"
+        : "Heats the active body of water (Off)";
+    }
   }
 
   function renderSchedule() {
@@ -385,7 +402,7 @@
     $("infoFeatures").className = pumps.features && pumps.features.on ? "on" : "";
     $("infoLights").textContent = "Pool " + (lights.pool && lights.pool.on ? "on" : "off") +
       " / Spa " + (lights.spa && lights.spa.on ? "on" : "off");
-    $("infoHeater").textContent = heater.on ? "On \u00B7 " + heater.setpoint + "\u00B0F" : "Off";
+    $("infoHeater").textContent = heater.on ? "On" : "Off";
     $("infoHeater").className = heater.on ? "hot" : "";
     var activeJets = Object.keys(jets).filter(function (k) { return jets[k].on; }).length;
     var activeFb = Object.keys(baskets).filter(function (k) { return baskets[k].on; }).length;
@@ -401,7 +418,7 @@
     var salt = state.chemistry && state.chemistry.salt;
     var line = "Pool " + temp(bodies.pool && bodies.pool.temp) + ", spa " +
       temp(bodies.spa && bodies.spa.temp) + ", salt " + (salt || "--") +
-      " ppm. I\u2019m keeping one eye on the firebaskets.";
+      " ppm. I\u2019m keeping one eye on the fountains.";
     $("iguanaLine").textContent = line;
   }
 
@@ -544,6 +561,99 @@
     speak(result.text || "Done.", result.audio_b64, result.audio_mime);
   }
 
+  var vuAudioCtx = null;
+  var vuAnalyser = null;
+  var vuSourceNode = null;
+  var vuAnimId = null;
+  var vuPollTimer = null;
+  var micSensitivityPercent = parseInt(localStorage.getItem("pool.micSensitivity") || "70", 10);
+
+  function updateVuMeter(level) {
+    var val = Math.max(0, Math.min(100, Math.round(level)));
+    var fills = [document.getElementById("voiceVuFill"), document.getElementById("hwVuFill")];
+    var texts = [document.getElementById("voiceVuVal"), document.getElementById("hwVuVal")];
+    fills.forEach(function (f) { if (f) f.style.width = val + "%"; });
+    texts.forEach(function (t) { if (t) t.textContent = val + "%"; });
+  }
+
+  function setMicSensitivity(percent, sendServer) {
+    micSensitivityPercent = Math.max(10, Math.min(100, parseInt(percent, 10) || 70));
+    localStorage.setItem("pool.micSensitivity", micSensitivityPercent);
+    ["micSensitivity", "hwMicSensitivity"].forEach(function (id) {
+      var s = document.getElementById(id);
+      if (s) s.value = micSensitivityPercent;
+    });
+    ["micSensitivityVal", "hwMicSensitivityVal"].forEach(function (id) {
+      var v = document.getElementById(id);
+      if (v) v.textContent = micSensitivityPercent + "%";
+    });
+
+    var threshPos = Math.round(100 - (micSensitivityPercent - 10) * (75 / 90));
+    ["voiceVuThresh", "hwVuThresh"].forEach(function (id) {
+      var th = document.getElementById(id);
+      if (th) th.style.left = threshPos + "%";
+    });
+
+    if (sendServer) {
+      var rms = Math.round(1000 - (micSensitivityPercent / 100) * 800);
+      api("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio: { local: { speech_rms: rms } } })
+      }).catch(function () {});
+    }
+  }
+
+  function startBrowserVu(stream) {
+    try {
+      if (!vuAudioCtx) {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        vuAudioCtx = new AC();
+      }
+      if (vuAudioCtx.state === "suspended") vuAudioCtx.resume();
+      if (vuSourceNode) { vuSourceNode.disconnect(); vuSourceNode = null; }
+      vuAnalyser = vuAudioCtx.createAnalyser();
+      vuAnalyser.fftSize = 128;
+      vuAnalyser.smoothingTimeConstant = 0.3;
+      vuSourceNode = vuAudioCtx.createMediaStreamSource(stream);
+      vuSourceNode.connect(vuAnalyser);
+      var pcm = new Uint8Array(vuAnalyser.frequencyBinCount);
+
+      function loop() {
+        if (!vuAnalyser) return;
+        vuAnalyser.getByteFrequencyData(pcm);
+        var sum = 0;
+        for (var i = 0; i < pcm.length; i++) sum += pcm[i];
+        var avg = sum / pcm.length;
+        var gainMult = 1.0 + (micSensitivityPercent / 45.0);
+        var lvl = Math.min(100, (avg / 128) * 100 * gainMult);
+        updateVuMeter(lvl);
+        vuAnimId = requestAnimationFrame(loop);
+      }
+      if (vuAnimId) cancelAnimationFrame(vuAnimId);
+      loop();
+    } catch (e) {}
+  }
+
+  function stopBrowserVu() {
+    if (vuAnimId) { cancelAnimationFrame(vuAnimId); vuAnimId = null; }
+    if (vuSourceNode) { vuSourceNode.disconnect(); vuSourceNode = null; }
+    updateVuMeter(0);
+  }
+
+  async function pollLocalAudioStatus() {
+    if (recorder && recorder.state === "recording") return;
+    try {
+      var stat = await api("/api/audio/status");
+      if (stat && stat.rms !== undefined) {
+        var maxRms = stat.speech_rms ? stat.speech_rms * 1.8 : 800;
+        var lvl = Math.min(100, Math.round((stat.rms / maxRms) * 100));
+        updateVuMeter(lvl);
+      }
+    } catch (e) {}
+  }
+
   function base64FromBlob(blob) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
@@ -572,6 +682,7 @@
         recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
       recorder = new MediaRecorder(recStream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "" });
+      startBrowserVu(recStream);
       recChunks = [];
       recorder.ondataavailable = function (e) { if (e.data && e.data.size) recChunks.push(e.data); };
       recorder.onstop = async function () {
@@ -616,6 +727,7 @@
   }
 
   function cleanupRecording() {
+    stopBrowserVu();
     if (recStream) {
       recStream.getTracks().forEach(function (t) { t.stop(); });
       recStream = null;
@@ -655,7 +767,6 @@
       await command("set_all_features", { on: true });
       await command("set_light", { body: "pool", on: true, effect: "BLUER" });
       await command("set_light", { body: "spa", on: true, effect: "BLUER" });
-      await command("set_spillway_color", { effect: "BLUER" });
       toast("Water and fire show running", "good");
     }
   }
@@ -752,10 +863,27 @@
     try {
       localAudio = await api("/api/audio/devices");
       var localCfg = (config && config.audio && config.audio.local) || {};
+      var browserCfg = (config && config.audio && config.audio.browser) || {};
       var localMic = localCfg.input_device || "default";
       var localSpk = localCfg.output_device || "default";
       fillSelect($("localMic"), localAudio.inputs, "System default microphone", localMic);
       fillSelect($("localSpeaker"), localAudio.outputs, "System default speaker", localSpk);
+
+      var savedVoiceSource = localStorage.getItem("pool.voiceSource") || browserCfg.voice_source || "local";
+      var savedSpeakerDest = localStorage.getItem("pool.speakerDest") || browserCfg.speaker_dest || "both";
+      if ($("sourceLocalMic")) $("sourceLocalMic").checked = (savedVoiceSource === "local");
+      if ($("sourceBrowserMic")) $("sourceBrowserMic").checked = (savedVoiceSource === "browser");
+      if ($("destLocalSpeaker")) $("destLocalSpeaker").checked = (savedSpeakerDest === "local");
+      if ($("destBrowserSpeaker")) $("destBrowserSpeaker").checked = (savedSpeakerDest === "browser");
+      if ($("destBothSpeaker")) $("destBothSpeaker").checked = (savedSpeakerDest === "both");
+
+      if (localCfg.speech_rms) {
+        var pct = Math.round(((1000 - localCfg.speech_rms) / 800) * 100);
+        setMicSensitivity(Math.max(10, Math.min(100, pct)), false);
+      } else {
+        setMicSensitivity(micSensitivityPercent, false);
+      }
+
       var savedVoice = localStorage.getItem("pool.serverVoice") ||
         (config && config.assistant && config.assistant.server_voice) || "us";
       fillSelect($("serverVoice"), localAudio.voices, "Automatic voice", savedVoice);
@@ -763,8 +891,8 @@
       var speakerRoute = ("setSinkId" in HTMLMediaElement.prototype)
         ? "Browser speaker routing supported" : "Browser speaker routing not supported by this browser";
       $("localAudioStatus").textContent =
-        "Pi microphone: " + (status.mic_running ? "ALWAYS ON on " + (status.input_device || "default") : "not running") +
-        "\nPi speaker: " + (status.speaker_available ? "ALWAYS ON on " + (status.output_device || "default") : "not available") +
+        "Pi webcam microphone: " + (status.mic_running ? "ALWAYS LISTENING on " + (status.input_device || "default") : "not running") +
+        "\nPi HDMI speaker: " + (status.speaker_available ? "ACTIVE on " + (status.output_device || "default") : "not available") +
         "\n" + speakerRoute + ". Local mic and speaker stay active even when browser devices are selected." +
         (status.last_error ? "\nLast audio error: " + status.last_error : "");
     } catch (err) {
@@ -795,7 +923,8 @@
       localStorage.setItem("pool.serverVoice", payload.assistant.server_voice);
       localStorage.setItem("pool.rate", payload.assistant.rate);
       localStorage.setItem("pool.pitch", payload.assistant.pitch);
-      localStorage.setItem("pool.voiceSource", $("voiceSource").value);
+      var vs = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
+      localStorage.setItem("pool.voiceSource", vs);
       toast("Iggy personality and voice saved", "good");
     } catch (err) {
       toast("Could not save personality: " + err.message, "error");
@@ -803,16 +932,23 @@
   }
 
   async function saveAudioSettings() {
+    var voiceSource = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
+    var speakerDest = ($("destLocalSpeaker") && $("destLocalSpeaker").checked) ? "local"
+      : (($("destBrowserSpeaker") && $("destBrowserSpeaker").checked) ? "browser" : "both");
+    var rms = Math.round(1000 - (micSensitivityPercent / 100) * 800);
+
     var payload = {
       audio: {
         local: {
-          input_device: $("localMic").value || "default",
-          output_device: $("localSpeaker").value || "default"
+          input_device: ($("localMic") && $("localMic").value) || "default",
+          output_device: ($("localSpeaker") && $("localSpeaker").value) || "default",
+          speech_rms: rms
         },
         browser: {
-          mic_device: $("browserMic").value,
-          speaker_device: $("browserSpeaker").value,
-          voice_source: $("voiceSource").value
+          mic_device: ($("browserMic") && $("browserMic").value) || "",
+          speaker_device: ($("browserSpeaker") && $("browserSpeaker").value) || "",
+          voice_source: voiceSource,
+          speaker_dest: speakerDest
         }
       }
     };
@@ -822,14 +958,17 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      localStorage.setItem("pool.micDevice", $("browserMic").value);
-      localStorage.setItem("pool.speakerDevice", $("browserSpeaker").value);
-      localStorage.setItem("pool.voiceSource", $("voiceSource").value);
+      localStorage.setItem("pool.micDevice", payload.audio.browser.mic_device);
+      localStorage.setItem("pool.speakerDevice", payload.audio.browser.speaker_device);
+      localStorage.setItem("pool.voiceSource", voiceSource);
+      localStorage.setItem("pool.speakerDest", speakerDest);
+      localStorage.setItem("pool.micSensitivity", micSensitivityPercent);
       if (config) {
         config.audio = config.audio || {};
         config.audio.local = payload.audio.local;
+        config.audio.browser = payload.audio.browser;
       }
-      toast("Microphone and speaker settings saved", "good");
+      toast("Audio hardware settings saved", "good");
     } catch (err) {
       toast("Could not save audio devices: " + err.message, "error");
     }
@@ -1216,7 +1355,7 @@
       add("Firebasket " + basket + " pool fountain", spec.water);
       add("Firebasket " + basket + " spa fountain", spec.spa_water);
     });
-    add("Spa air blower", resolved.blower && resolved.blower.circuit);
+    add("Blower", resolved.blower && resolved.blower.circuit);
     ["pool", "spa"].forEach(function (body) {
       add("Light: " + body, resolved.lights && resolved.lights[body]);
     });
@@ -1248,25 +1387,49 @@
           '<div class="feature-head"><div><div class="feature-title">' + key.toUpperCase() +
           ' Floor Jet</div><div class="feature-sub">' + key.toUpperCase() + ' laminar floor jet</div></div>' +
           '<label class="switch"><input type="checkbox" data-toggle="jet"><span class="slider"></span></label></div>' +
-          '<div class="feature-actions">' +
-          '<button class="icon-btn" data-act="light">Light</button>' +
-          '<button class="icon-btn" data-act="thumper">Thumper</button>' +
-          '</div></div>';
+          '</div>';
       }).join("");
     }
     var baskets = $("firebaskets");
     if (baskets) {
       baskets.innerHTML = ["east", "west"].map(function (key) {
-        var title = key === "east" ? "East Firebasket" : "West Firebasket";
+        var title = key === "east" ? "East Firepit" : "West Firepit";
         return '<div class="feature-card fire" data-basket="' + key + '">' +
           '<div class="feature-head"><div><div class="feature-title">' + title +
-          '</div><div class="feature-sub">Pool &amp; spa fountains off</div></div>' +
-          '<label class="switch"><input type="checkbox" data-toggle="firebasket"><span class="slider"></span></label></div>' +
-          '<div class="feature-leds">' +
-          '<span class="led-pill" data-led="pool"><i></i>Pool fountain</span>' +
-          '<span class="led-pill" data-led="spa"><i></i>Spa fountain</span>' +
+          '</div><div class="feature-sub" data-sub="firebasket">Spillways &amp; flame off</div></div>' +
+          '<div class="fire-flame-toggle" title="Firepit Flame">' +
+          '<label class="switch mini"><input type="checkbox" data-toggle="flame"><span class="slider"></span></label>' +
+          '<span class="flame-label">Flame</span>' +
+          '</div></div>' +
+          '<div class="spillway-controls">' +
+          '<div class="spillway-toggle-row">' +
+          '<span>Pool Spillway</span>' +
+          '<label class="switch"><input type="checkbox" data-spillway="pool"><span class="slider"></span></label>' +
+          '</div>' +
+          '<div class="spillway-toggle-row">' +
+          '<span>Spa Spillway</span>' +
+          '<label class="switch"><input type="checkbox" data-spillway="spa"><span class="slider"></span></label>' +
+          '</div>' +
           '</div></div>';
       }).join("");
+    }
+  }
+
+  function activateTab(name) {
+    var wanted = name || "control";
+    var found = null;
+    document.querySelectorAll(".tab").forEach(function (tab) {
+      var isActive = tab.getAttribute("data-tab") === wanted;
+      tab.classList.toggle("active", isActive);
+      if (isActive) found = tab;
+    });
+    document.querySelectorAll(".view").forEach(function (view) {
+      view.classList.toggle("active", view.id === "view-" + wanted);
+    });
+    if (!found) return;
+    if (wanted === "setup") {
+      refreshInventory();
+      loadAlexa();
     }
   }
 
@@ -1275,17 +1438,15 @@
 
     document.querySelectorAll(".tab").forEach(function (tab) {
       tab.addEventListener("click", function () {
-        document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
-        document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
-        tab.classList.add("active");
-        var view = $("view-" + tab.getAttribute("data-tab"));
-        if (view) view.classList.add("active");
-        if (tab.getAttribute("data-tab") === "setup") {
-          refreshInventory();
-          loadAlexa();
-        }
+        var name = tab.getAttribute("data-tab");
+        activateTab(name);
+        if (history.replaceState) history.replaceState(null, "", "#" + name);
       });
     });
+    window.addEventListener("hashchange", function () {
+      activateTab((location.hash || "#control").slice(1));
+    });
+    activateTab((location.hash || "#control").slice(1));
 
     $("modePool").addEventListener("click", function () {
       command("set_mode", { mode: "pool" });
@@ -1316,23 +1477,19 @@
       var card = input.closest("[data-jet]");
       command("set_deck_jet", { id: card.getAttribute("data-jet"), on: input.checked });
     });
-    $("deckJets").addEventListener("click", function (e) {
-      var btn = e.target.closest("button[data-act]");
-      if (!btn) return;
-      var card = btn.closest("[data-jet]");
-      var key = card.getAttribute("data-jet");
-      var jet = (state.deck_jets || {})[key] || {};
-      if (btn.getAttribute("data-act") === "light") {
-        command("set_deck_jet", { id: key, on: true, light: !(jet.light && jet.on) });
-      } else {
-        command("set_deck_jet", { id: key, on: true, thumper: !(jet.thumper !== false) });
-      }
-    });
     $("firebaskets").addEventListener("change", function (e) {
-      var input = e.target.closest('input[data-toggle="firebasket"]');
-      if (!input) return;
-      var card = input.closest("[data-basket]");
-      command("set_firebasket", { id: card.getAttribute("data-basket"), on: input.checked });
+      var card = e.target.closest("[data-basket]");
+      if (!card) return;
+      var key = card.getAttribute("data-basket");
+      if (e.target.matches('input[data-spillway="pool"]')) {
+        command("set_firebasket", { id: key, water: e.target.checked });
+      } else if (e.target.matches('input[data-spillway="spa"]')) {
+        command("set_firebasket", { id: key, spa_water: e.target.checked });
+      } else if (e.target.matches('input[data-toggle="flame"]')) {
+        command("set_firebasket", { id: key, on: e.target.checked });
+      } else if (e.target.matches('input[data-toggle="firebasket"]')) {
+        command("set_firebasket", { id: key, on: e.target.checked });
+      }
     });
     $("featuresAllOn").addEventListener("click", function () { command("set_all_features", { on: true }); });
     $("featuresAllOff").addEventListener("click", function () { command("set_all_features", { on: false }); });
@@ -1346,11 +1503,10 @@
         command("set_light", { body: body, on: light.on, effect: e.target.value });
       });
     });
-    $("spillwayEffect").addEventListener("change", function (e) {
-      command("set_spillway_color", { effect: e.target.value });
-    });
-
     $("blowerToggle").addEventListener("change", function (e) {
+      if (window.pool3d && window.pool3d.setBlower) {
+        window.pool3d.setBlower(e.target.checked);
+      }
       command("set_blower", { on: e.target.checked });
     });
 
@@ -1358,12 +1514,14 @@
       command("set_heater", { on: e.target.checked });
     });
     var heatSlider = $("heaterSetpoint");
-    heatSlider.addEventListener("input", function (e) {
-      $("heaterSetpointVal").textContent = e.target.value + "\u00B0F";
-    });
-    heatSlider.addEventListener("change", function (e) {
-      command("set_heater", { setpoint: parseInt(e.target.value, 10) });
-    });
+    if (heatSlider) {
+      heatSlider.addEventListener("input", function (e) {
+        if ($("heaterSetpointVal")) $("heaterSetpointVal").textContent = e.target.value + "\u00B0F";
+      });
+      heatSlider.addEventListener("change", function (e) {
+        command("set_heater", { setpoint: parseInt(e.target.value, 10) });
+      });
+    }
 
     $("addRun").addEventListener("click", function () {
       scheduleDraft = collectSchedule();
@@ -1412,9 +1570,49 @@
     $("personalitySelect").addEventListener("change", updatePersonaVisibility);
     $("speakRate").addEventListener("input", updateRateReadouts);
     $("speakPitch").addEventListener("input", updateRateReadouts);
-    $("voiceSource").addEventListener("change", function () {
-      localStorage.setItem("pool.voiceSource", $("voiceSource").value);
+
+    var micSens = $("micSensitivity");
+    if (micSens) {
+      micSens.addEventListener("input", function (e) { setMicSensitivity(e.target.value, false); });
+      micSens.addEventListener("change", function (e) { setMicSensitivity(e.target.value, true); });
+    }
+    var hwMicSens = $("hwMicSensitivity");
+    if (hwMicSens) {
+      hwMicSens.addEventListener("input", function (e) { setMicSensitivity(e.target.value, false); });
+      hwMicSens.addEventListener("change", function (e) { setMicSensitivity(e.target.value, true); });
+    }
+
+    ["sourceLocalMic", "sourceBrowserMic"].forEach(function (id) {
+      var r = $(id);
+      if (r) {
+        r.addEventListener("change", function () {
+          var val = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
+          localStorage.setItem("pool.voiceSource", val);
+        });
+      }
     });
+
+    ["destLocalSpeaker", "destBrowserSpeaker", "destBothSpeaker"].forEach(function (id) {
+      var r = $(id);
+      if (r) {
+        r.addEventListener("change", function () {
+          var val = ($("destLocalSpeaker") && $("destLocalSpeaker").checked) ? "local"
+            : (($("destBrowserSpeaker") && $("destBrowserSpeaker").checked) ? "browser" : "both");
+          localStorage.setItem("pool.speakerDest", val);
+        });
+      }
+    });
+
+    if (!vuPollTimer) {
+      vuPollTimer = setInterval(pollLocalAudioStatus, 200);
+    }
+
+    var vsElem = $("voiceSource");
+    if (vsElem) {
+      vsElem.addEventListener("change", function () {
+        localStorage.setItem("pool.voiceSource", vsElem.value);
+      });
+    }
     $("browserVoice").addEventListener("change", function () {
       localStorage.setItem("pool.browserVoice", $("browserVoice").value);
     });
@@ -1463,9 +1661,34 @@
     });
   }
 
+  function startLivePoolCamera() {
+    var img = $("poolLiveVideo");
+    if (!img) return;
+    var active = true;
+
+    function refreshFrame() {
+      if (!active) return;
+      var nextImg = new Image();
+      nextImg.onload = function () {
+        if (!active) return;
+        img.src = nextImg.src;
+        if ($("camStatusText")) $("camStatusText").textContent = "LIVE";
+        setTimeout(refreshFrame, 400);
+      };
+      nextImg.onerror = function () {
+        if (!active) return;
+        if ($("camStatusText")) $("camStatusText").textContent = "STANDBY";
+        setTimeout(refreshFrame, 2000);
+      };
+      nextImg.src = "/api/camera/snapshot?t=" + Date.now();
+    }
+    refreshFrame();
+  }
+
   function init() {
     bind();
     populateBrowserVoices();
+    startLivePoolCamera();
     if ("speechSynthesis" in window) {
       window.speechSynthesis.onvoiceschanged = populateBrowserVoices;
     }

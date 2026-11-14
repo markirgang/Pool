@@ -91,6 +91,7 @@ class LocalAudio:
         self._last_spoken = 0.0
         self._active_input = ""
         self._active_output = ""
+        self._current_rms = 0
         self._last_status: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
@@ -116,6 +117,8 @@ class LocalAudio:
             "speaking": self.is_speaking(),
             "input_device": self._active_input or self._local_cfg().get("input_device", "default"),
             "output_device": self._active_output or self._local_cfg().get("output_device", "default"),
+            "rms": self._current_rms,
+            "speech_rms": int(self._local_cfg().get("speech_rms", 450)),
             "last_error": self._last_error,
             "last_heard": self._last_heard,
             "last_spoken": self._last_spoken,
@@ -165,10 +168,23 @@ class LocalAudio:
         captures = _parse_devices(
             self._command_output(["arecord", "-l"]), "input"
         ) if shutil.which("arecord") else []
-        return captures[1]["id"] if len(captures) > 1 else device
+        for c in captures:
+            name_lower = c["name"].lower()
+            if "pixy" in name_lower or "emeet" in name_lower or "webcam" in name_lower or "usb" in name_lower:
+                return c["id"]
+        return captures[1]["id"] if len(captures) > 1 else device or "default"
 
     def _resolve_output(self, device: str) -> str:
-        return device or "default"
+        if device and device != "default":
+            return device
+        playbacks = _parse_devices(
+            self._command_output(["aplay", "-l"]), "output"
+        ) if shutil.which("aplay") else []
+        for p in playbacks:
+            name_lower = p["name"].lower()
+            if "hdmi" in name_lower or "vc4" in name_lower:
+                return p["id"]
+        return playbacks[1]["id"] if len(playbacks) > 1 else device or "default"
 
     def _output_candidates(self) -> list[str]:
         configured = str(self._local_cfg().get("output_device") or "default")
@@ -255,7 +271,9 @@ class LocalAudio:
                     speech_seconds = 0.0
                     silence_seconds = 0.0
                     continue
-                voiced = _rms(data) >= threshold
+                cur_rms = _rms(data)
+                self._current_rms = cur_rms
+                voiced = cur_rms >= threshold
                 if voiced:
                     if not in_speech:
                         in_speech = True

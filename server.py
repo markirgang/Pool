@@ -364,6 +364,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(LOCAL_AUDIO.devices() if LOCAL_AUDIO else {
                 "inputs": [], "outputs": [], "voices": [], "local": None,
             })
+        elif path == "/api/audio/status":
+            self.send_json(LOCAL_AUDIO.status() if LOCAL_AUDIO else {})
         elif path == "/api/camera/devices":
             self.send_json({
                 "cameras": LOCAL_CAMERA.devices() if LOCAL_CAMERA else [],

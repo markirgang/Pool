@@ -78,8 +78,8 @@
     scene.add(inset);
   }
 
-  var POOL = { x: -2, z: 1, w: 10.6, d: 6.6, y: 0.09 };
-  var SPA = { x: 5.1, z: -4.1, w: 3.8, d: 3.8, y: 0.78 };
+  var POOL = { x: -0.5, z: 0.0, w: 6.6, d: 12.0, y: 0.09 };
+  var SPA = { x: 4.45, z: 7.65, w: 3.6, d: 3.6, y: 0.78 };
 
   function addBox(w, h, d, mat, x, y, z) {
     var mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -88,6 +88,15 @@
     mesh.receiveShadow = true;
     scene.add(mesh);
     return mesh;
+  }
+
+  function addBoxLocal(parent, w, h, d, mat, x, y, z) {
+    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    parent.add(m);
+    return m;
   }
 
   // Pool shell: dark basin below the animated water surface
@@ -100,7 +109,7 @@
   addBox(0.5, 0.18, POOL.d + 0.2, copingMat, POOL.x - POOL.w / 2 - 0.3, 0.12, POOL.z);
   addBox(0.5, 0.18, POOL.d + 0.2, copingMat, POOL.x + POOL.w / 2 + 0.3, 0.12, POOL.z);
 
-  var poolWaterGeo = new THREE.PlaneGeometry(POOL.w, POOL.d, 48, 28);
+  var poolWaterGeo = new THREE.PlaneGeometry(POOL.w, POOL.d, 36, 48);
   var poolWater = new THREE.Mesh(poolWaterGeo, waterMat);
   poolWater.rotation.x = -Math.PI / 2;
   poolWater.position.set(POOL.x, POOL.y, POOL.z);
@@ -108,27 +117,234 @@
   scene.add(poolWater);
   var poolBase = poolWaterGeo.attributes.position.array.slice(0);
 
+  // Spa group (corner between 2 firebaskets aligned with Southeast pool corner and pushed towards pool)
+  var spaGroup = new THREE.Group();
+  spaGroup.position.set(SPA.x, 0, SPA.z);
+  scene.add(spaGroup);
+
   // Spa raised platform and shell
-  addBox(SPA.w + 1.7, 0.8, SPA.d + 1.7, deckMat2, SPA.x, 0.4, SPA.z);
-  addBox(SPA.w + 0.9, 0.9, SPA.d + 0.9, new THREE.MeshStandardMaterial({
+  addBoxLocal(spaGroup, SPA.w + 1.2, 0.8, SPA.d + 1.2, deckMat2, 0.3, 0.4, 0.3);
+  addBoxLocal(spaGroup, SPA.w + 0.6, 0.9, SPA.d + 0.6, new THREE.MeshStandardMaterial({
     color: 0x123d49, roughness: 0.75, metalness: 0.1
-  }), SPA.x, 0.52, SPA.z);
-  addBox(SPA.w + 1.0, 0.16, 0.34, copingMat, SPA.x, 0.95, SPA.z - SPA.d / 2 - 0.18);
-  addBox(SPA.w + 1.0, 0.16, 0.34, copingMat, SPA.x, 0.95, SPA.z + SPA.d / 2 + 0.18);
-  addBox(0.34, 0.16, SPA.d + 0.1, copingMat, SPA.x - SPA.w / 2 - 0.18, 0.95, SPA.z);
-  addBox(0.34, 0.16, SPA.d + 0.1, copingMat, SPA.x + SPA.w / 2 + 0.18, 0.95, SPA.z);
+  }), 0, 0.52, 0);
+  addBoxLocal(spaGroup, SPA.w + 0.6, 0.16, 0.34, copingMat, 0, 0.95, -SPA.d / 2);
+  addBoxLocal(spaGroup, SPA.w + 0.6, 0.16, 0.34, copingMat, 0, 0.95, SPA.d / 2);
+  addBoxLocal(spaGroup, 0.34, 0.16, SPA.d + 0.6, copingMat, -SPA.w / 2, 0.95, 0);
+  addBoxLocal(spaGroup, 0.34, 0.16, SPA.d + 0.6, copingMat, SPA.w / 2, 0.95, 0);
 
   var spaWaterGeo = new THREE.PlaneGeometry(SPA.w, SPA.d, 24, 24);
   var spaWater = new THREE.Mesh(spaWaterGeo, spaWaterMat);
   spaWater.rotation.x = -Math.PI / 2;
-  spaWater.position.set(SPA.x, SPA.y, SPA.z);
+  spaWater.position.set(0, SPA.y, 0);
   spaWater.receiveShadow = true;
-  scene.add(spaWater);
+  spaGroup.add(spaWater);
   var spaBase = spaWaterGeo.attributes.position.array.slice(0);
 
-  // Spa spillway lip toward the pool
-  var spaLip = addBox(1.4, 0.12, 0.7, waterMat, SPA.x - 0.2, SPA.y - 0.02, SPA.z + SPA.d / 2 + 0.2);
-  spaLip.material = waterMat;
+  // Corner Waterfall Lip between the 2 firebaskets spilling into the pool
+  var spaLipMat = waterMat.clone();
+  spaLipMat.color.setHex(0x1bbde0);
+  spaLipMat.emissive.setHex(0x0e718c);
+  var spaLip = addBoxLocal(spaGroup, 1.35, 0.08, 0.7, spaLipMat, -1.8, SPA.y - 0.01, -1.8);
+  spaLip.rotation.y = -Math.PI / 4;
+
+  function createWaterfallTexture() {
+    var c = document.createElement("canvas");
+    c.width = 128;
+    c.height = 256;
+    var ctx = c.getContext("2d");
+    var grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, "rgba(175, 242, 255, 0.75)");
+    grad.addColorStop(0.3, "rgba(125, 230, 255, 0.85)");
+    grad.addColorStop(0.8, "rgba(220, 252, 255, 0.95)");
+    grad.addColorStop(1.0, "rgba(255, 255, 255, 0.98)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 256);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+    ctx.lineWidth = 2.5;
+    for (var s = 0; s < 20; s++) {
+      var sx = (s * 6.8 + 2) % 128;
+      ctx.beginPath();
+      ctx.moveTo(sx, 0);
+      ctx.bezierCurveTo(sx + 3, 70, sx - 3, 170, sx, 256);
+      ctx.stroke();
+    }
+    var tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(1, 2);
+    return tex;
+  }
+  var wfTex = createWaterfallTexture();
+  var wfMat = new THREE.MeshStandardMaterial({
+    color: 0x9fefff, emissive: 0x24b7db, emissiveIntensity: 0.5,
+    roughness: 0.1, metalness: 0.15, transparent: true, opacity: 0.9,
+    side: THREE.DoubleSide, depthWrite: false, map: wfTex
+  });
+  var WF_WIDTH = 1.38;
+  var wfGeo = new THREE.PlaneGeometry(WF_WIDTH, 1, 12, 20);
+  var wfPos = wfGeo.attributes.position.array;
+  var wfBase = new Float32Array(wfPos.length);
+  for (var wfi = 0; wfi < wfPos.length; wfi += 3) {
+    var vFrac = 0.5 - wfPos[wfi + 1];
+    var wy, wz;
+    if (vFrac < 0.18) {
+      var cf = vFrac / 0.18;
+      wy = 0.77 - cf * cf * 0.05;
+      wz = -0.2 + cf * 0.22;
+    } else {
+      var ff = (vFrac - 0.18) / 0.82;
+      wy = 0.72 - ff * 0.63;
+      wz = 0.02 + Math.sin(ff * Math.PI * 0.5) * 0.18;
+    }
+    wfPos[wfi + 1] = wy;
+    wfPos[wfi + 2] = wz;
+    wfBase[wfi] = wfPos[wfi];
+    wfBase[wfi + 1] = wy;
+    wfBase[wfi + 2] = wz;
+  }
+  wfGeo.computeVertexNormals();
+  var wfMesh = new THREE.Mesh(wfGeo, wfMat);
+  wfMesh.position.set(-1.8, 0, -1.8);
+  wfMesh.rotation.y = -Math.PI / 4;
+  spaGroup.add(wfMesh);
+
+  var isPoolMode = true;
+  var waterfallIntensity = 1.0;
+
+  // ------------------------------------------------------------------
+  // Spa Bubbles (Blower animation)
+  // ------------------------------------------------------------------
+  var blowerActive = false;
+  var blowerIntensity = 0.0;
+
+  var BUBBLE_COUNT = 220;
+  var bubbleGeom = new THREE.SphereGeometry(1, 10, 8);
+  var bubbleMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0x88f5ff,
+    emissiveIntensity: 1.0,
+    roughness: 0.05,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false
+  });
+  var bubbleMesh = new THREE.InstancedMesh(bubbleGeom, bubbleMat, BUBBLE_COUNT);
+  if (THREE.DynamicDrawUsage !== undefined) bubbleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  bubbleMesh.visible = false;
+  spaGroup.add(bubbleMesh);
+
+  var dummyObj = new THREE.Object3D();
+  var bubbles = [];
+  for (var bi = 0; bi < BUBBLE_COUNT; bi++) {
+    bubbles.push({
+      x: (Math.random() - 0.5) * 2.8,
+      z: (Math.random() - 0.5) * 2.8,
+      y: 0.15 + Math.random() * 0.75,
+      radius: 0.08 + Math.random() * 0.14,
+      speed: 1.2 + Math.random() * 2.2,
+      wobbleSpeed: 4.0 + Math.random() * 7.0,
+      wobbleAmp: 0.035 + Math.random() * 0.05,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+
+  function createFoamTexture() {
+    var c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 64;
+    var ctx = c.getContext("2d");
+    var grad = ctx.createRadialGradient(30, 30, 2, 32, 32, 28);
+    grad.addColorStop(0, "rgba(255, 255, 255, 1.0)");
+    grad.addColorStop(0.35, "rgba(225, 252, 255, 0.9)");
+    grad.addColorStop(0.7, "rgba(130, 230, 255, 0.5)");
+    grad.addColorStop(1, "rgba(130, 230, 255, 0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(32, 32, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
+    ctx.beginPath();
+    ctx.arc(22, 22, 5, 0, Math.PI * 2);
+    ctx.fill();
+    var tex = new THREE.CanvasTexture(c);
+    return tex;
+  }
+
+  var FOAM_COUNT = 140;
+  var foamGeom = new THREE.BufferGeometry();
+  var foamPos = new Float32Array(FOAM_COUNT * 3);
+  var foamSeeds = [];
+  for (var fi = 0; fi < FOAM_COUNT; fi++) {
+    var fx = (Math.random() - 0.5) * 2.8;
+    var fz = (Math.random() - 0.5) * 2.8;
+    foamPos[fi * 3] = fx;
+    foamPos[fi * 3 + 1] = SPA.y + 0.02;
+    foamPos[fi * 3 + 2] = fz;
+    foamSeeds.push({
+      bx: fx,
+      bz: fz,
+      speed: 2.0 + Math.random() * 3.5,
+      radius: 0.06 + Math.random() * 0.16,
+      phase: Math.random() * Math.PI * 2
+    });
+  }
+  foamGeom.setAttribute("position", new THREE.BufferAttribute(foamPos, 3));
+  var foamMat = new THREE.PointsMaterial({
+    size: 0.55,
+    map: createFoamTexture(),
+    transparent: true,
+    opacity: 0.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  var foamPoints = new THREE.Points(foamGeom, foamMat);
+  foamPoints.visible = false;
+  spaGroup.add(foamPoints);
+
+  var foamDisc = new THREE.Mesh(new THREE.PlaneGeometry(SPA.w - 0.2, SPA.d - 0.2),
+    new THREE.MeshBasicMaterial({
+      color: 0xebfcff,
+      transparent: true,
+      opacity: 0.0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    }));
+  foamDisc.rotation.x = -Math.PI / 2;
+  foamDisc.position.set(0, SPA.y + 0.015, 0);
+  foamDisc.visible = false;
+  spaGroup.add(foamDisc);
+
+  // Falling waterfall spray droplets & pool impact foam
+  var WF_SPRAY_COUNT = 36;
+  var wfSprayGeom = new THREE.BufferGeometry();
+  var wfSprayPos = new Float32Array(WF_SPRAY_COUNT * 3);
+  var wfSprayData = [];
+  for (var si = 0; si < WF_SPRAY_COUNT; si++) {
+    var sx = (Math.random() - 0.5) * (WF_WIDTH - 0.08);
+    var sy = 0.09 + Math.random() * 0.68;
+    wfSprayPos[si * 3] = sx;
+    wfSprayPos[si * 3 + 1] = sy;
+    wfSprayPos[si * 3 + 2] = 2.55;
+    wfSprayData.push({ x: sx, speed: 2.2 + Math.random() * 2.4, phase: Math.random() * Math.PI * 2 });
+  }
+  wfSprayGeom.setAttribute("position", new THREE.BufferAttribute(wfSprayPos, 3));
+  var wfSprayMat = new THREE.PointsMaterial({
+    size: 0.20, map: createFoamTexture(), transparent: true, opacity: 0.85,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  var wfSprayPoints = new THREE.Points(wfSprayGeom, wfSprayMat);
+  spaGroup.add(wfSprayPoints);
+
+  var impactFoamMat = new THREE.MeshBasicMaterial({
+    color: 0xebfcff, transparent: true, opacity: 0.55,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  });
+  var impactFoam = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.45), impactFoamMat);
+  impactFoam.rotation.x = -Math.PI / 2;
+  impactFoam.position.set(-2.05, 0.096, -2.05);
+  impactFoam.rotation.z = -Math.PI / 4;
+  spaGroup.add(impactFoam);
 
   // ------------------------------------------------------------------
   // Labels (canvas sprites)
@@ -191,16 +407,18 @@
   var modeLabel = makeLabel("POOL MODE", "#7df0ef");
   modeLabel.position.set(-1.2, 3.55, 1.2);
   var saltLabel = makeLabel("SALT -- ppm", "#8fe9f5");
-  saltLabel.position.set(-8.7, 2.9, 3.1);
+  saltLabel.position.set(-7.5, 2.9, -1.8);
+  var connStatusLabel = makeLabel("SIMULATION MODE", "#ffaa33");
+  connStatusLabel.position.set(-6.8, 2.5, 9.2);
 
   // ------------------------------------------------------------------
-  // Deck jets
+  // Deck floor jets
   // ------------------------------------------------------------------
   var jetDefs = {
-    ne: { x: 3.9, z: -3.5, target: [-1.2, 0.1, -0.2] },
-    nw: { x: -7.9, z: -3.5, target: [-2.9, 0.1, -0.2] },
-    se: { x: 3.9, z: 5.6, target: [-1.2, 0.1, 2.2] },
-    sw: { x: -7.9, z: 5.6, target: [-2.9, 0.1, 2.2] }
+    ne: { x: 3.3, z: -4.5, target: [0.5, 0.1, -2.5] },
+    nw: { x: -4.3, z: -4.5, target: [-1.0, 0.1, -2.5] },
+    se: { x: 3.3, z: 1.5, target: [0.5, 0.1, 2.0] },
+    sw: { x: -4.3, z: 3.5, target: [-1.0, 0.1, 2.5] }
   };
   var jets = {};
 
@@ -251,11 +469,11 @@
   });
 
   // ------------------------------------------------------------------
-  // Firebaskets with two spillways and LED strips
+  // Firebaskets flanking the Southeast pool corner (each has 2 spillways)
   // ------------------------------------------------------------------
   var basketDefs = {
-    east: { x: 6.65, z: -2.08 },
-    west: { x: 3.55, z: -2.08 }
+    east: { x: 4.25, z: 5.85, poolAngle: Math.PI, spaAngle: 0 },
+    west: { x: 2.65, z: 7.45, poolAngle: -Math.PI / 2, spaAngle: Math.PI / 2 }
   };
   var baskets = {};
 
@@ -297,31 +515,37 @@
     glow.position.set(0, 1.1, 0);
     group.add(glow);
 
-    // pool-side and spa-side spillways with LED strips
-    function spillway(dir) {
-      var sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.75, 1, 8),
+    // Dual spillways: one emptying into the pool, one emptying into the spa
+    function makeSpillway(angleRad) {
+      var spillGroup = new THREE.Group();
+      spillGroup.position.set(Math.sin(angleRad) * 0.52, 0.02, Math.cos(angleRad) * 0.52);
+      spillGroup.rotation.y = angleRad;
+      group.add(spillGroup);
+
+      var sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.82, 1, 8),
         new THREE.MeshBasicMaterial({
-          color: 0x8defff, transparent: true, opacity: 0.0,
+          color: 0x98f2ff, transparent: true, opacity: 0.0,
           side: THREE.DoubleSide, depthWrite: false
         }));
-      sheet.rotation.x = -Math.PI / 2;
-      sheet.position.set(0, 0.02, dir * 0.56);
-      sheet.rotation.x = dir > 0 ? -Math.PI / 2 : Math.PI / 2;
-      group.add(sheet);
+      sheet.rotation.x = -Math.PI / 3;
+      sheet.position.set(0, -0.05, 0.35);
+      spillGroup.add(sheet);
 
       var ledMat = new THREE.MeshStandardMaterial({
         color: 0x2a80ff, emissive: 0x2a80ff, emissiveIntensity: 0.0
       });
-      var led = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.1, 0.08), ledMat);
-      led.position.set(0, 0.1, dir * 0.62);
-      group.add(led);
-      var ledLight = new THREE.PointLight(0x2a80ff, 0.0, 3.4, 2);
-      ledLight.position.set(0, 0.2, dir * 0.7);
-      group.add(ledLight);
-      return { sheet: sheet, led: led, ledMat: ledMat, ledLight: ledLight };
+      var led = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.07), ledMat);
+      led.position.set(0, 0.08, 0.05);
+      spillGroup.add(led);
+
+      var ledLight = new THREE.PointLight(0x2a80ff, 0.0, 3.0, 2);
+      ledLight.position.set(0, 0.15, 0.2);
+      spillGroup.add(ledLight);
+
+      return { group: spillGroup, sheet: sheet, led: led, ledMat: ledMat, ledLight: ledLight };
     }
-    var poolSpill = spillway(1);
-    var spaSpill = spillway(-1);
+    var poolSpill = makeSpillway(def.poolAngle);
+    var spaSpill = makeSpillway(def.spaAngle);
 
     var label = makeLabel(key === "east" ? "FB EAST OFF" : "FB WEST OFF", "#ffcf9a");
     label.position.set(0, 2.15, 0);
@@ -335,12 +559,181 @@
   });
 
   // ------------------------------------------------------------------
+  // East side: Canal, Seawall, Boat Dock, Boat and Jet Ski
+  // ------------------------------------------------------------------
+  var seawall = addBox(0.55, 0.25, 32, copingMat, 9.8, 0.12, 0);
+  addBox(0.3, 1.2, 32, new THREE.MeshStandardMaterial({ color: 0x3d4b52, roughness: 0.9 }), 10.05, -0.42, 0);
+
+  var canalWaterGeo = new THREE.PlaneGeometry(16, 32, 24, 24);
+  var canalWaterMat = new THREE.MeshStandardMaterial({
+    color: 0x0c4f5e, transparent: true, opacity: 0.88,
+    roughness: 0.16, metalness: 0.14, emissive: 0x062832, emissiveIntensity: 0.4
+  });
+  var canalWater = new THREE.Mesh(canalWaterGeo, canalWaterMat);
+  canalWater.rotation.x = -Math.PI / 2;
+  canalWater.position.set(18.2, -0.42, 0);
+  canalWater.receiveShadow = true;
+  scene.add(canalWater);
+  var canalBase = canalWaterGeo.attributes.position.array.slice(0);
+
+  var dockMat = new THREE.MeshStandardMaterial({ color: 0x7c624e, roughness: 0.85, metalness: 0.05 });
+  var pilingMat = new THREE.MeshStandardMaterial({ color: 0x3d2f24, roughness: 0.9 });
+  addBox(4.0, 0.16, 17.5, dockMat, 12.1, 0.06, 0);
+  [-8.0, -4.0, 0, 4.0, 8.0].forEach(function (pz) {
+    var piling = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1.8, 10), pilingMat);
+    piling.position.set(14.15, -0.2, pz);
+    piling.castShadow = true;
+    scene.add(piling);
+  });
+
+  // North boat lift with center console boat
+  var boatGroup = new THREE.Group();
+  boatGroup.position.set(16.5, 0.28, -4.0);
+  scene.add(boatGroup);
+
+  var liftMat = new THREE.MeshStandardMaterial({ color: 0xb5c0c6, roughness: 0.35, metalness: 0.75 });
+  [[-1.8, -2.4], [1.8, -2.4], [-1.8, 2.4], [1.8, 2.4]].forEach(function (lp) {
+    var post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 8), liftMat);
+    post.position.set(lp[0], 0.7, lp[1]);
+    boatGroup.add(post);
+  });
+  [-2.4, 2.4].forEach(function (cz) {
+    var beam = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.12, 0.14), liftMat);
+    beam.position.set(0, -0.15, cz);
+    boatGroup.add(beam);
+  });
+
+  var marineWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25, metalness: 0.08 });
+  var navyAccent = new THREE.MeshStandardMaterial({ color: 0x0f2b48, roughness: 0.35, metalness: 0.1 });
+  var boatHull = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.75, 5.2), marineWhite);
+  boatHull.position.set(0, 0.25, 0);
+  boatHull.castShadow = true;
+  boatGroup.add(boatHull);
+
+  var bow = new THREE.Mesh(new THREE.ConeGeometry(1.05, 1.4, 4), marineWhite);
+  bow.rotation.y = Math.PI / 4;
+  bow.rotation.x = -Math.PI / 2;
+  bow.position.set(0, 0.25, -3.1);
+  bow.scale.set(1, 0.55, 1);
+  bow.castShadow = true;
+  boatGroup.add(bow);
+
+  var stripe = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.08, 5.2), navyAccent);
+  stripe.position.set(0, 0.08, 0);
+  boatGroup.add(stripe);
+
+  var boatDeck = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.06, 4.8), new THREE.MeshStandardMaterial({ color: 0xdde4e8, roughness: 0.6 }));
+  boatDeck.position.set(0, 0.48, 0);
+  boatGroup.add(boatDeck);
+
+  var consoleBox = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.75, 0.9), marineWhite);
+  consoleBox.position.set(0, 0.85, -0.2);
+  boatGroup.add(consoleBox);
+  var windshield = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.28, 0.06), new THREE.MeshStandardMaterial({ color: 0x3d7085, roughness: 0.1, transparent: true, opacity: 0.75 }));
+  windshield.position.set(0, 1.32, -0.6);
+  boatGroup.add(windshield);
+
+  [-0.48, 0.48].forEach(function (tx) {
+    var stanchion = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.4, 6), liftMat);
+    stanchion.position.set(tx, 1.25, -0.2);
+    boatGroup.add(stanchion);
+  });
+  var tTop = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 2.2), navyAccent);
+  tTop.position.set(0, 1.95, -0.2);
+  boatGroup.add(tTop);
+
+  [-0.42, 0.42].forEach(function (ox) {
+    var motor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.65, 0.42), navyAccent);
+    motor.position.set(ox, 0.35, 2.75);
+    boatGroup.add(motor);
+    var prop = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.25, 0.25), liftMat);
+    prop.position.set(ox, -0.05, 2.85);
+    boatGroup.add(prop);
+  });
+
+  var dockLabel = makeLabel("NORTH BOAT LIFT", "#8fe9f5");
+  dockLabel.position.set(16.5, 2.9, -4.0);
+
+  // South jet ski lift with jet ski
+  var jetskiGroup = new THREE.Group();
+  jetskiGroup.position.set(15.5, 0.18, 4.5);
+  scene.add(jetskiGroup);
+
+  [-1.1, 1.1].forEach(function (lx) {
+    var post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), liftMat);
+    post.position.set(lx, 0.5, 0);
+    jetskiGroup.add(post);
+  });
+  [-0.4, 0.4].forEach(function (bx) {
+    var bunk = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 2.6), dockMat);
+    bunk.position.set(bx, -0.08, 0);
+    jetskiGroup.add(bunk);
+  });
+
+  var tealMat = new THREE.MeshStandardMaterial({ color: 0x11b5ad, roughness: 0.25, metalness: 0.15 });
+  var seatMat = new THREE.MeshStandardMaterial({ color: 0x1c2124, roughness: 0.7 });
+  var jsHull = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.42, 2.8), marineWhite);
+  jsHull.position.set(0, 0.15, 0);
+  jsHull.castShadow = true;
+  jetskiGroup.add(jsHull);
+
+  var jsBow = new THREE.Mesh(new THREE.ConeGeometry(0.58, 0.85, 4), tealMat);
+  jsBow.rotation.y = Math.PI / 4;
+  jsBow.rotation.x = Math.PI / 2;
+  jsBow.scale.set(1, 0.48, 1);
+  jsBow.position.set(0, 0.18, 1.75);
+  jetskiGroup.add(jsBow);
+
+  var jsHood = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.22, 1.6), tealMat);
+  jsHood.position.set(0, 0.4, 0.2);
+  jetskiGroup.add(jsHood);
+
+  var jsBars = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.05, 0.06), liftMat);
+  jsBars.position.set(0, 0.65, 0.45);
+  jetskiGroup.add(jsBars);
+
+  var jsSeat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.22, 1.4), seatMat);
+  jsSeat.position.set(0, 0.44, -0.35);
+  jetskiGroup.add(jsSeat);
+
+  var jetskiLabel = makeLabel("SOUTH JET SKI LIFT", "#7df0ef");
+  jetskiLabel.position.set(15.5, 2.4, 4.5);
+
+  // ------------------------------------------------------------------
+  // West side: House at 2732 NE 23rd Ave
+  // ------------------------------------------------------------------
+  var houseGroup = new THREE.Group();
+  scene.add(houseGroup);
+
+  var stuccoMat = new THREE.MeshStandardMaterial({ color: 0xf3f5f7, roughness: 0.9, metalness: 0.02 });
+  var fasciaMat = new THREE.MeshStandardMaterial({ color: 0x222a2e, roughness: 0.6 });
+  var glassSliderMat = new THREE.MeshStandardMaterial({
+    color: 0x3d7085, roughness: 0.1, metalness: 0.85, transparent: true, opacity: 0.72
+  });
+
+  addBoxLocal(houseGroup, 8.0, 4.6, 26.0, stuccoMat, -13.0, 2.3, 0);
+  addBoxLocal(houseGroup, 8.4, 0.35, 26.4, fasciaMat, -13.0, 4.75, 0);
+  addBoxLocal(houseGroup, 2.4, 0.25, 20.0, fasciaMat, -7.8, 3.9, 0);
+
+  [-8.5, -3.0, 3.0, 8.5].forEach(function (cz) {
+    addBoxLocal(houseGroup, 0.35, 3.8, 0.35, stuccoMat, -6.8, 1.9, cz);
+  });
+
+  addBoxLocal(houseGroup, 0.08, 3.2, 16.0, glassSliderMat, -8.95, 1.6, 0);
+
+  var houseLight = new THREE.PointLight(0xffdfa8, 1.2, 18, 2);
+  houseLight.position.set(-10.2, 2.2, 0);
+  houseGroup.add(houseLight);
+
+  var houseLabel = makeLabel("2732 NE 23RD AVE", "#e2f7ff");
+  houseLabel.position.set(-7.5, 4.25, 0);
+
+  // ------------------------------------------------------------------
   // Lights in the water
   // ------------------------------------------------------------------
-  var POOL_LIGHT_POS = new THREE.Vector3(POOL.x - 3.7, 0.18, POOL.z + 2.2);
-  var SPA_LIGHT_POS = new THREE.Vector3(SPA.x - 1.2, 0.92, SPA.z + 1.2);
+  var POOL_LIGHT_POS = new THREE.Vector3(POOL.x + 1.5, 0.18, POOL.z - 1.2);
 
-  function makeLight(pos) {
+  function makeLight(pos, parent) {
     var group = new THREE.Group();
     group.position.copy(pos);
     var lens = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 12),
@@ -357,30 +750,21 @@
     glow.rotation.x = -Math.PI / 2;
     glow.position.y = -0.06;
     group.add(glow);
-    scene.add(group);
+    (parent || scene).add(group);
     return { group: group, lens: lens, light: light, glow: glow };
   }
   var poolLamp = makeLight(POOL_LIGHT_POS);
-  var spaLamp = makeLight(SPA_LIGHT_POS);
+  var spaLamp = makeLight(new THREE.Vector3(0, 0.92, 0), spaGroup);
 
   // ------------------------------------------------------------------
-  // Equipment pad: pumps, heater, valves
+  // Equipment pad: pumps, heater, valves (South corner of the house)
   // ------------------------------------------------------------------
   var pad = new THREE.Group();
-  pad.position.set(-9.2, 0, 8.2);
+  pad.position.set(-6.8, 0, 9.2);
   scene.add(pad);
   addBoxLocal(pad, 5.4, 0.18, 2.7, new THREE.MeshStandardMaterial({
     color: 0x142b32, roughness: 0.9
   }), 0, 0.09, 0);
-
-  function addBoxLocal(parent, w, h, d, mat, x, y, z) {
-    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    parent.add(m);
-    return m;
-  }
 
   function makePump(x, z, labelText, color) {
     var g = new THREE.Group();
@@ -452,11 +836,11 @@
   }
 
   // ------------------------------------------------------------------
-  // Iggy the iguana
+  // Iggy the iguana (sunbathing by the seawall overlooking pool and canal)
   // ------------------------------------------------------------------
   var iguana = createIguana();
-  iguana.group.position.set(-9.8, 0, 2.4);
-  iguana.group.rotation.y = -0.7;
+  iguana.group.position.set(8.6, 0, -0.5);
+  iguana.group.rotation.y = -2.3;
   iguana.group.scale.setScalar(1.55);
   scene.add(iguana.group);
 
@@ -577,6 +961,7 @@
   // ------------------------------------------------------------------
   var state = null;
   var clock = new THREE.Clock();
+  var lastT = 0;
 
   function effectColor(effect) {
     switch (effect) {
@@ -616,6 +1001,15 @@
     var poolTemp = formatTemp(state.bodies && state.bodies.pool ? state.bodies.pool.temp : null);
     var spaTemp = formatTemp(state.bodies && state.bodies.spa ? state.bodies.spa.temp : null);
     var salt = state.chemistry && state.chemistry.salt ? state.chemistry.salt + " ppm" : "--";
+    if (state.blower && state.blower.on !== undefined) {
+      blowerActive = !!state.blower.on;
+    }
+    isPoolMode = (mode === "pool");
+
+    var conn = state.connection || {};
+    var isOnline = !!conn.connected;
+    updateLabel(connStatusLabel, isOnline ? "INTELLICENTER ONLINE" : "SIMULATION MODE",
+      isOnline ? "#4df0a0" : "#ffaa33");
 
     updateLabel(poolLabel, "POOL " + poolTemp, mode === "pool" ? "#67eff5" : "#a9f4ff");
     updateLabel(spaLabel, "SPA " + spaTemp, mode === "spa" ? "#d9c4ff" : "#b8d6ff");
@@ -665,26 +1059,44 @@
         jet.on ? "#8ff6ff" : "#648c99");
     });
 
-    // firebaskets
+    // firebaskets (individual pool & spa spillway flows)
     var spillColor = effectColor(state.spillway_effect || "BLUER");
     Object.keys(baskets).forEach(function (key) {
       var b = baskets[key];
       var bs = state.firebaskets && state.firebaskets[key] ? state.firebaskets[key] : {};
-      b.on = !!bs.on;
-      b.flames.forEach(function (flame) { flame.visible = b.on; });
-      b.ember.material.emissiveIntensity = b.on ? 1.8 : 0.0;
-      b.glow.intensity = b.on ? 2.4 : 0;
-      [b.poolSpill, b.spaSpill].forEach(function (sp) {
-        sp.sheet.material.opacity = b.on ? 0.65 : 0.0;
-        sp.ledMat.color.setHex(spillColor);
-        sp.ledMat.emissive.setHex(spillColor);
-        sp.ledMat.emissiveIntensity = b.on ? 2.2 : 0.0;
-        sp.ledLight.color.setHex(spillColor);
-        sp.ledLight.intensity = b.on ? 1.4 : 0.0;
-      });
+      var burnerOn = !!bs.on;
+      var poolFlow = !!bs.water;
+      var spaFlow = !!bs.spa_water;
+
+      b.on = burnerOn || poolFlow || spaFlow;
+      b.flames.forEach(function (flame) { flame.visible = burnerOn; });
+      b.ember.material.emissiveIntensity = burnerOn ? 1.8 : 0.0;
+      b.glow.intensity = burnerOn ? 2.4 : 0;
+
+      if (b.poolSpill) {
+        b.poolSpill.sheet.material.opacity = poolFlow ? 0.75 : 0.0;
+        b.poolSpill.ledMat.color.setHex(spillColor);
+        b.poolSpill.ledMat.emissive.setHex(spillColor);
+        b.poolSpill.ledMat.emissiveIntensity = poolFlow ? 2.2 : 0.0;
+        b.poolSpill.ledLight.color.setHex(spillColor);
+        b.poolSpill.ledLight.intensity = poolFlow ? 1.4 : 0.0;
+      }
+      if (b.spaSpill) {
+        b.spaSpill.sheet.material.opacity = spaFlow ? 0.75 : 0.0;
+        b.spaSpill.ledMat.color.setHex(spillColor);
+        b.spaSpill.ledMat.emissive.setHex(spillColor);
+        b.spaSpill.ledMat.emissiveIntensity = spaFlow ? 2.2 : 0.0;
+        b.spaSpill.ledLight.color.setHex(spillColor);
+        b.spaSpill.ledLight.intensity = spaFlow ? 1.4 : 0.0;
+      }
+
+      var parts = [];
+      if (poolFlow) parts.push("POOL");
+      if (spaFlow) parts.push("SPA");
+      var statusText = parts.length ? parts.join("+") : (burnerOn ? "FIRE" : "OFF");
       updateLabel(b.label,
-        (key === "east" ? "FB EAST " : "FB WEST ") + (b.on ? "FIRING" : "OFF"),
-        b.on ? "#ffcf9a" : "#8c7462");
+        (key === "east" ? "FB EAST " : "FB WEST ") + statusText,
+        (poolFlow || spaFlow || burnerOn) ? "#ffcf9a" : "#8c7462");
     });
 
     // pumps / heater / valves
@@ -701,7 +1113,7 @@
 
     var heaterOn = !!(state.heater && state.heater.on);
     heaterLed.material.emissiveIntensity = heaterOn ? 2.4 : 0;
-    updateLabel(heaterLabel, "HEATER " + (heaterOn ? state.heater.setpoint + "°F" : "OFF"),
+    updateLabel(heaterLabel, "HEATER " + (heaterOn ? "ON" : "OFF"),
       heaterOn ? "#ffcf9a" : "#7f8c90");
 
     var valves = state.valves || {};
@@ -715,25 +1127,153 @@
   function animate() {
     requestAnimationFrame(animate);
     var t = clock.getElapsedTime();
+    var dt = lastT ? Math.min(t - lastT, 0.1) : 0.016;
+    lastT = t;
     controls.update();
 
-    // water ripples
+    // Blower bubbles & foam animation
+    if (blowerActive) {
+      blowerIntensity = Math.min(1.0, blowerIntensity + dt * 4.0);
+    } else {
+      blowerIntensity = Math.max(0.0, blowerIntensity - dt * 2.5);
+    }
+
+    var showBubbles = blowerIntensity > 0.01;
+    bubbleMesh.visible = showBubbles;
+    foamPoints.visible = showBubbles;
+    foamDisc.visible = showBubbles;
+
+    if (showBubbles) {
+      foamMat.opacity = blowerIntensity * 0.95;
+      foamDisc.material.opacity = blowerIntensity * (0.35 + Math.sin(t * 8) * 0.08);
+      spaWaterMat.opacity = Math.max(0.48, 0.9 - blowerIntensity * 0.38);
+
+      for (var bi = 0; bi < BUBBLE_COUNT; bi++) {
+        var b = bubbles[bi];
+        b.y += b.speed * dt * (0.5 + 0.5 * blowerIntensity);
+        if (b.y > SPA.y + 0.16) {
+          b.y = 0.15 + Math.random() * 0.1;
+          b.x = (Math.random() - 0.5) * 2.8;
+          b.z = (Math.random() - 0.5) * 2.8;
+        }
+        var curX = b.x + Math.sin(t * b.wobbleSpeed + b.phase) * b.wobbleAmp;
+        var curZ = b.z + Math.cos(t * b.wobbleSpeed + b.phase) * b.wobbleAmp;
+        var progress = Math.min(1.0, Math.max(0.0, (b.y - 0.15) / (SPA.y - 0.15)));
+        var curScale = b.radius * (1.0 + 0.8 * progress) * Math.min(1.0, blowerIntensity * 1.6);
+
+        dummyObj.position.set(curX, b.y, curZ);
+        dummyObj.scale.set(curScale, curScale, curScale);
+        dummyObj.updateMatrix();
+        bubbleMesh.setMatrixAt(bi, dummyObj.matrix);
+      }
+      bubbleMesh.instanceMatrix.needsUpdate = true;
+
+      var fArr = foamGeom.attributes.position.array;
+      for (var fi = 0; fi < FOAM_COUNT; fi++) {
+        var fs = foamSeeds[fi];
+        var angle = t * fs.speed + fs.phase;
+        fArr[fi * 3] = fs.bx + Math.cos(angle) * fs.radius;
+        fArr[fi * 3 + 1] = SPA.y + 0.015 + Math.sin(t * 12 + fi) * 0.015;
+        fArr[fi * 3 + 2] = fs.bz + Math.sin(angle) * fs.radius;
+      }
+      foamGeom.attributes.position.needsUpdate = true;
+    } else {
+      spaWaterMat.opacity = 0.9;
+    }
+
+    // Waterfall animation (pool mode vs spa mode)
+    if (isPoolMode) {
+      waterfallIntensity = Math.min(1.0, waterfallIntensity + dt * 2.5);
+    } else {
+      waterfallIntensity = Math.max(0.0, waterfallIntensity - dt * 2.5);
+    }
+
+    var showWaterfall = waterfallIntensity > 0.01;
+    wfMesh.visible = showWaterfall;
+    wfSprayPoints.visible = showWaterfall;
+    impactFoam.visible = showWaterfall;
+    spaLip.visible = showWaterfall;
+
+    if (showWaterfall) {
+      wfTex.offset.y -= dt * 3.8;
+      wfMat.opacity = waterfallIntensity * 0.9;
+      spaLipMat.opacity = waterfallIntensity * 0.88;
+      impactFoamMat.opacity = waterfallIntensity * (0.42 + Math.sin(t * 11) * 0.12);
+      wfSprayMat.opacity = waterfallIntensity * 0.85;
+
+      for (var k = 0; k < wfPos.length; k += 3) {
+        var bx = wfBase[k];
+        var by = wfBase[k + 1];
+        var bz = wfBase[k + 2];
+        var vFrac = Math.min(1.0, Math.max(0.0, (0.77 - by) / 0.68));
+        var turb = Math.sin(by * 16.0 + t * 14.0 + bx * 3.5) * 0.018 * vFrac;
+        var flutter = Math.cos(by * 24.0 - t * 20.0) * 0.012 * vFrac;
+        wfPos[k] = bx + Math.sin(by * 10.0 + t * 9.0) * 0.01 * vFrac;
+        wfPos[k + 1] = by;
+        wfPos[k + 2] = bz + (turb + flutter) * waterfallIntensity;
+      }
+      wfGeo.attributes.position.needsUpdate = true;
+      wfGeo.computeVertexNormals();
+
+      var spArr = wfSprayGeom.attributes.position.array;
+      for (var si = 0; si < WF_SPRAY_COUNT; si++) {
+        var sd = wfSprayData[si];
+        spArr[si * 3 + 1] -= sd.speed * dt;
+        if (spArr[si * 3 + 1] < 0.09) {
+          spArr[si * 3 + 1] = 0.77;
+          spArr[si * 3] = (Math.random() - 0.5) * (WF_WIDTH - 0.1);
+        }
+        var curY = spArr[si * 3 + 1];
+        var sProg = Math.min(1.0, Math.max(0.0, (0.77 - curY) / 0.68));
+        spArr[si * 3] += Math.sin(t * 8 + sd.phase) * 0.005;
+        spArr[si * 3 + 2] = 2.45 + sProg * 0.33 + Math.sin(t * 12 + si) * 0.015;
+      }
+      wfSprayGeom.attributes.position.needsUpdate = true;
+    }
+
+    // Pool water ripples + waterfall impact ripples
     var pArr = poolWaterGeo.attributes.position.array;
     for (var i = 0; i < pArr.length; i += 3) {
       var x = poolBase[i];
       var y = poolBase[i + 1];
-      pArr[i + 2] = Math.sin(x * 1.15 + t * 1.6) * 0.035 +
+      var rWave = Math.sin(x * 1.15 + t * 1.6) * 0.035 +
         Math.cos(y * 1.45 - t * 1.2) * 0.03;
+      if (waterfallIntensity > 0.001) {
+        var dImpact = Math.sqrt((x - 2.90) * (x - 2.90) + (y - (-5.60)) * (y - (-5.60)));
+        if (dImpact < 3.2) {
+          rWave += Math.sin(dImpact * 6.5 - t * 9.5) * (0.045 / (1.0 + dImpact * 1.4)) * waterfallIntensity;
+        }
+      }
+      pArr[i + 2] = rWave;
     }
     poolWaterGeo.attributes.position.needsUpdate = true;
+
     var sArr = spaWaterGeo.attributes.position.array;
+    var churnAmp = blowerIntensity * 0.055;
     for (var j = 0; j < sArr.length; j += 3) {
       var sx = spaBase[j];
       var sy = spaBase[j + 1];
-      sArr[j + 2] = Math.sin(sx * 2.2 + t * 2.2) * 0.025 +
+      var wave = Math.sin(sx * 2.2 + t * 2.2) * 0.025 +
         Math.cos(sy * 2.5 - t * 1.8) * 0.02;
+      if (churnAmp > 0.001) {
+        wave += Math.sin(sx * 6.5 + t * 8.5) * churnAmp +
+                Math.cos(sy * 7.5 - t * 7.0) * (churnAmp * 0.8) +
+                Math.sin((sx + sy) * 10.0 + t * 12.0) * (churnAmp * 0.5);
+      }
+      sArr[j + 2] = wave;
     }
     spaWaterGeo.attributes.position.needsUpdate = true;
+
+    // Canal water ripples
+    if (canalWaterGeo && canalBase) {
+      var cArr = canalWaterGeo.attributes.position.array;
+      for (var ci = 0; ci < cArr.length; ci += 3) {
+        var cx = canalBase[ci];
+        var cy = canalBase[ci + 1];
+        cArr[ci + 2] = Math.sin(cx * 0.9 + t * 1.4) * 0.035 + Math.cos(cy * 1.1 - t * 1.0) * 0.03;
+      }
+      canalWaterGeo.attributes.position.needsUpdate = true;
+    }
 
     // deck jet droplets and thumper bursts
     Object.keys(jets).forEach(function (key) {
@@ -796,16 +1336,33 @@
     setTalking: function (on) {
       if (iguana) iguana.targetTalk = on ? 1 : 0;
     },
+    setBlower: function (on) {
+      blowerActive = !!on;
+    },
+    setMode: function (mode) {
+      isPoolMode = (mode === "pool");
+    },
+    setConnection: function (conn) {
+      var isOnline = !!(conn && conn.connected);
+      updateLabel(connStatusLabel, isOnline ? "INTELLICENTER ONLINE" : "SIMULATION MODE",
+        isOnline ? "#4df0a0" : "#ffaa33");
+    },
     focus: function (which) {
       if (which === "spa") {
         controls.target.set(SPA.x, 0.7, SPA.z);
-        camera.position.set(13, 9, 4);
+        camera.position.set(SPA.x + 5.5, 5.0, SPA.z + 5.5);
       } else if (which === "jets") {
         controls.target.set(POOL.x, 0.5, POOL.z);
-        camera.position.set(12, 10, 15);
+        camera.position.set(POOL.x + 8.0, 7.5, POOL.z + 8.0);
+      } else if (which === "dock") {
+        controls.target.set(13.0, 0.5, 0);
+        camera.position.set(19.0, 8.0, 6.0);
+      } else if (which === "house") {
+        controls.target.set(-9.0, 2.0, 0);
+        camera.position.set(-2.0, 6.0, 10.0);
       } else {
-        controls.target.set(-1.2, 0.4, 1.2);
-        camera.position.set(17.5, 14.5, 19.5);
+        controls.target.set(0.5, 0.5, 1.0);
+        camera.position.set(16.5, 14.0, 16.5);
       }
       controls.update();
     }

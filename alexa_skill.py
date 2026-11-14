@@ -78,7 +78,7 @@ def _endpoints() -> list[dict[str, Any]]:
         _endpoint("spa_mode", "Spa Mode", "SWITCH", [POWER],
                   "Switches the pool between spa mode and pool mode"),
         _endpoint("all_features", "All Water Features", "SWITCH", [POWER],
-                  "All four deck jets and both firebaskets"),
+                  "All four floor jets, both firebaskets and the spa blower"),
         _endpoint("main_pump", "Main Pool Pump", "SWITCH", [POWER],
                   "Main variable speed pool and spa pump"),
         _endpoint("features_pump", "Water Features Pump", "SWITCH", [POWER],
@@ -87,16 +87,17 @@ def _endpoints() -> list[dict[str, Any]]:
                   "Pentair color LED pool light"),
         _endpoint("spa_light", "Spa Light", "LIGHT", [POWER, COLOR],
                   "Pentair color LED spa light"),
-        _endpoint("pool_heater", "Pool Heater", "THERMOSTAT",
-                  [THERMOSTAT, TEMPERATURE], "Pool heater and temperature"),
+        _endpoint("pool_heater", "Pool Heater", "SWITCH", [POWER], "Pool heater"),
     ]
-    for jet, label in (("ne", "NE Deck Jet"), ("nw", "NW Deck Jet"),
-                       ("se", "SE Deck Jet"), ("sw", "SW Deck Jet")):
+    for jet, label in (("ne", "NE Floor Jet"), ("nw", "NW Floor Jet"),
+                       ("se", "SE Floor Jet"), ("sw", "SW Floor Jet")):
         endpoints.append(_endpoint("deck_jet_%s" % jet, label, "SWITCH", [POWER],
-                                   "Laminar deck jet with light and thumper"))
+                                   "Laminar floor jet"))
     for basket, label in (("east", "East Firebasket"), ("west", "West Firebasket")):
         endpoints.append(_endpoint("firebasket_%s" % basket, label, "SWITCH", [POWER],
-                                   "Firebasket with pool and spa spillways"))
+                                   "Firebasket with pool and spa fountains"))
+    endpoints.append(_endpoint("spa_blower", "Blower", "SWITCH", [POWER],
+                               "Blower"))
     return endpoints
 
 
@@ -144,7 +145,7 @@ def _power_state(endpoint_id: str, state: dict[str, Any]) -> str:
     if endpoint_id == "all_features":
         on = any(j["on"] for j in state["deck_jets"].values()) or any(
             f["on"] for f in state["firebaskets"].values()
-        )
+        ) or (state.get("blower") or {}).get("on")
         return "ON" if on else "OFF"
     if endpoint_id.startswith("deck_jet_"):
         jet = endpoint_id.rsplit("_", 1)[1]
@@ -152,6 +153,8 @@ def _power_state(endpoint_id: str, state: dict[str, Any]) -> str:
     if endpoint_id.startswith("firebasket_"):
         basket = endpoint_id.rsplit("_", 1)[1]
         return "ON" if state["firebaskets"].get(basket, {}).get("on") else "OFF"
+    if endpoint_id == "spa_blower":
+        return "ON" if (state.get("blower") or {}).get("on") else "OFF"
     if endpoint_id.endswith("_light"):
         body = endpoint_id.split("_", 1)[0]
         return "ON" if state["lights"].get(body, {}).get("on") else "OFF"
@@ -293,6 +296,8 @@ def _handle_power(endpoint: str, on: bool, controller: Any) -> dict:
         return controller.command("set_firebasket", {
             "id": endpoint.rsplit("_", 1)[1], "on": on,
         })
+    if endpoint == "spa_blower":
+        return controller.command("set_blower", {"on": on})
     if endpoint.endswith("_light"):
         return controller.command("set_light", {
             "body": endpoint.split("_", 1)[0], "on": on,

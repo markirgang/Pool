@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shobots Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=1">
+  <title>Lighthouse Pool - IntelliCenter Control</title>
+  <link rel="stylesheet" href="style.css?v=5">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -13,7 +13,7 @@
     <div class="brand">
       <div class="brand-mark">P</div>
       <div>
-        <div class="brand-name">SHOBOTS <span>POOL</span></div>
+        <div class="brand-name">LIGHTHOUSE <span>POOL</span></div>
         <div class="brand-sub">Pentair IntelliCenter control</div>
       </div>
     </div>
@@ -150,12 +150,12 @@
             <!-- populated by app.js -->
           </div>
 
-          <h3 class="group-title">Spa Air Blower</h3>
+          <h3 class="group-title">Blower</h3>
           <div class="feature-grid">
             <div class="feature-card" id="blowerCard">
               <div class="feature-head">
                 <div>
-                  <div class="feature-title">Spa Air Blower</div>
+                  <div class="feature-title">Blower</div>
                   <div class="feature-sub" id="blowerState">Off</div>
                 </div>
                 <label class="switch">
@@ -164,11 +164,6 @@
                 </label>
               </div>
             </div>
-          </div>
-          <div class="spillway-row">
-            <span>Spillway LED color</span>
-            <select id="spillwayEffect" class="select"></select>
-            <span class="muted">Steady blue is the default</span>
           </div>
         </section>
 
@@ -213,16 +208,12 @@
                 <strong>Heater</strong>
                 <span class="chip" id="heaterStatus">OFF</span>
               </div>
-              <div class="muted" id="heaterBodyText">Heats the active body of water</div>
+              <div class="muted" id="heaterBodyText">Heats the active body of water (On / Off)</div>
             </div>
             <label class="switch">
               <input type="checkbox" id="heaterToggle">
               <span class="slider"></span>
             </label>
-            <div class="setpoint">
-              <span id="heaterSetpointVal">84&deg;F</span>
-              <input type="range" id="heaterSetpoint" min="40" max="104" step="1" value="84">
-            </div>
           </div>
         </section>
       </div>
@@ -264,10 +255,27 @@
               <span class="mic-core"></span>
             </button>
             <div class="voice-status" id="voiceStatus">Press and hold, then speak</div>
+
+            <div class="vu-meter-container" id="voiceVuContainer">
+              <div class="vu-meter-header">
+                <span class="vu-meter-title">MIC LEVEL</span>
+                <span class="vu-meter-val" id="voiceVuVal">0%</span>
+              </div>
+              <div class="vu-meter-track">
+                <div class="vu-meter-fill" id="voiceVuFill"></div>
+                <div class="vu-meter-threshold" id="voiceVuThresh" title="Speech threshold"></div>
+              </div>
+            </div>
+            <div class="mic-sensitivity-row">
+              <label for="micSensitivity">Mic Sensitivity</label>
+              <input type="range" id="micSensitivity" min="10" max="100" value="70" step="5">
+              <span class="sensitivity-val" id="micSensitivityVal">70%</span>
+            </div>
+
             <div class="voice-bubble" id="voiceTranscript"></div>
             <div class="voice-response" id="voiceResponse"></div>
             <div class="voice-text-row">
-              <input type="text" id="voiceText" placeholder="e.g. Turn on the NE deck jet and the pool light">
+              <input type="text" id="voiceText" placeholder="e.g. Turn on the NE floor jet and the pool light">
               <button class="btn primary" id="sendVoiceText">Send</button>
             </div>
             <label class="checkline">
@@ -327,27 +335,79 @@
           <div class="card-head">
             <div>
               <h2>Microphones &amp; Speakers</h2>
-              <p class="muted">The Pi microphone and speaker always stay on. Browser mic/speaker choices are added on top.</p>
+              <p class="muted">The local mic in the webcam is always listening and the local HDMI speaker is selected, with the ability to use the browsing computer&rsquo;s mic and speaker.</p>
             </div>
             <button class="btn small ghost" id="refreshAudio">Refresh Devices</button>
           </div>
+
+          <div class="audio-source-selectors">
+            <div class="source-card">
+              <div class="source-title">Voice Input Source</div>
+              <div class="source-options">
+                <label class="radio-label">
+                  <input type="radio" name="voiceSource" value="local" id="sourceLocalMic" checked>
+                  <span>Local Webcam Mic (Always listening on Pi)</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="voiceSource" value="browser" id="sourceBrowserMic">
+                  <span>Browsing Computer&rsquo;s Microphone</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="source-card">
+              <div class="source-title">Voice Output Destination</div>
+              <div class="source-options">
+                <label class="radio-label">
+                  <input type="radio" name="speakerDest" value="local" id="destLocalSpeaker">
+                  <span>Local HDMI Speaker (Pi)</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="speakerDest" value="browser" id="destBrowserSpeaker">
+                  <span>Browsing Computer&rsquo;s Speaker</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="speakerDest" value="both" id="destBothSpeaker" checked>
+                  <span>Both (Local HDMI + Browser)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <div class="form-grid audio-grid">
-            <label>Browser microphone
+            <label>Browsing computer mic
               <select id="browserMic" class="select"></select>
             </label>
-            <label>Browser speaker
+            <label>Browsing computer speaker
               <select id="browserSpeaker" class="select"></select>
             </label>
-            <label>Local / webcam microphone
+            <label>Local webcam microphone (Pi)
               <select id="localMic" class="select"></select>
             </label>
-            <label>Local / monitor speaker
+            <label>Local HDMI speaker (Pi)
               <select id="localSpeaker" class="select"></select>
             </label>
           </div>
+
+          <div class="hardware-vu-section">
+            <div class="vu-meter-header">
+              <span class="vu-meter-title">LIVE MIC VU METER</span>
+              <span class="vu-meter-val" id="hwVuVal">0%</span>
+            </div>
+            <div class="vu-meter-track">
+              <div class="vu-meter-fill" id="hwVuFill"></div>
+              <div class="vu-meter-threshold" id="hwVuThresh" title="Speech threshold"></div>
+            </div>
+            <div class="mic-sensitivity-row">
+              <label for="hwMicSensitivity">Mic Sensitivity</label>
+              <input type="range" id="hwMicSensitivity" min="10" max="100" value="70" step="5">
+              <span class="sensitivity-val" id="hwMicSensitivityVal">70%</span>
+            </div>
+          </div>
+
           <div class="conn-detail" id="localAudioStatus">Checking local audio hardware...</div>
           <div class="row-actions">
-            <button class="btn primary small" id="saveAudio">Save Devices</button>
+            <button class="btn primary small" id="saveAudio">Save Audio Hardware</button>
           </div>
         </section>
 
@@ -406,8 +466,8 @@
             <label>Host / IP
               <input type="text" id="icHost" placeholder="192.168.1.50">
             </label>
-            <label>Port
-              <input type="number" id="icPort" value="6681">
+            <label>Port (default 6681)
+              <input type="number" id="icPort" value="6681" placeholder="6681">
             </label>
             <label>Transport
               <select id="icTransport" class="select">
@@ -505,13 +565,20 @@
             <h2>Pool &amp; Spa</h2>
             <span class="muted" id="vizHint">Drag to orbit &middot; scroll to zoom</span>
           </div>
-          <span class="chip live" id="vizMode">POOL</span>
+          <div class="viz-badges">
+            <span class="chip simulation" id="vizConnChip">SIMULATION</span>
+            <span class="chip live" id="vizMode">POOL</span>
+          </div>
         </div>
         <div class="viz-canvas-wrap">
+          <div class="viz-status-banner simulation" id="animConnBanner">
+            <span class="status-dot"></span>
+            <span id="animConnText">SIMULATION MODE</span>
+          </div>
           <canvas id="poolCanvas"></canvas>
           <div class="iguana-bubble" id="iguanaBubble">
             <div class="iguana-name">IGGY THE IGUANA</div>
-            <div class="iguana-line" id="iguanaLine">I&rsquo;ve got one eye on the pool and one on the firebaskets.</div>
+            <div class="iguana-line" id="iguanaLine">I&rsquo;ve got one eye on the pool and one on the fountains.</div>
           </div>
           <div class="viz-info" id="vizInfo">
             <div class="viz-info-row"><span>Mode</span><b id="infoMode">Pool</b></div>
@@ -538,6 +605,23 @@
         </div>
       </section>
 
+      <section class="card pool-video-card" id="poolVideoCard">
+        <div class="card-head">
+          <div>
+            <h2>Live Pool Webcam</h2>
+            <p class="muted">Live view facing the pool</p>
+          </div>
+          <div class="live-pill"><span class="status-dot"></span> LIVE</div>
+        </div>
+        <div class="pool-video-stage">
+          <img id="poolLiveVideo" src="/api/camera/snapshot" alt="Live Pool Camera" class="pool-camera-feed">
+          <div class="video-overlay-bar">
+            <span>2732 NE 23RD AVE &middot; POOL CAM</span>
+            <span id="camStatusText">LIVE</span>
+          </div>
+        </div>
+      </section>
+
       <section class="card quick-card">
         <div class="card-head">
           <div>
@@ -556,7 +640,7 @@
   </main>
 
   <div class="toast" id="toast"></div>
-  <script src="pool3d.js?v=1"></script>
-  <script src="app.js?v=1"></script>
+  <script src="pool3d.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

@@ -165,7 +165,7 @@ class GeminiPoolBridge:
                 ),
                 types.FunctionDeclaration(
                     name="pool_set_firebasket",
-                    description="Turn one firebasket (east or west) on or off, which opens its pool and spa fountain circuits.",
+                    description="Turn one firepit (east or west) on/off, or control its individual pool spillway, spa spillway, or both.",
                     parameters=types.Schema(
                         type=types.Type.OBJECT,
                         properties={
@@ -173,6 +173,9 @@ class GeminiPoolBridge:
                                 type=types.Type.STRING, enum=["east", "west"]
                             ),
                             "on": types.Schema(type=types.Type.BOOLEAN),
+                            "spillway": types.Schema(
+                                type=types.Type.STRING, enum=["pool", "spa", "both", "flame"]
+                            ),
                         },
                         required=["basket", "on"],
                     ),
@@ -227,13 +230,13 @@ class GeminiPoolBridge:
                 ),
                 types.FunctionDeclaration(
                     name="pool_set_heater",
-                    description="Turn the heater on or off and optionally set the target temperature in Fahrenheit.",
+                    description="Turn the pool heater on or off.",
                     parameters=types.Schema(
                         type=types.Type.OBJECT,
                         properties={
                             "on": types.Schema(type=types.Type.BOOLEAN),
-                            "setpoint": types.Schema(type=types.Type.NUMBER),
                         },
+                        required=["on"],
                     ),
                 ),
                 types.FunctionDeclaration(
@@ -392,10 +395,19 @@ class GeminiPoolBridge:
                 "thumper": args.get("thumper"),
             }
         elif action == "set_firebasket":
-            payload = {
-                "id": str(args.get("basket", "east")).lower(),
-                "on": bool(args.get("on")),
-            }
+            spill = str(args.get("spillway") or "both").lower()
+            val = bool(args.get("on"))
+            payload = {"id": str(args.get("basket", "east")).lower()}
+            if spill == "pool":
+                payload["water"] = val
+            elif spill == "spa":
+                payload["spa_water"] = val
+            elif spill == "flame":
+                payload["on"] = val
+            else:
+                payload["water"] = val
+                payload["spa_water"] = val
+                payload["on"] = val
         elif action == "set_all_features":
             payload = {"on": bool(args.get("on"))}
         elif action == "set_blower":

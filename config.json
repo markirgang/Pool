@@ -1,5 +1,5 @@
 {
-  "name": "Pool",
+  "name": "Lighthouse Pool",
   "port": 2490,
   "host": "0.0.0.0",
   "public_url": "https://pool.shobots.party",
