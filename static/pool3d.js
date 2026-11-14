@@ -79,7 +79,7 @@
   }
 
   var POOL = { x: -0.5, z: 0.0, w: 6.6, d: 12.0, y: 0.09 };
-  var SPA = { x: 4.45, z: 7.65, w: 3.6, d: 3.6, y: 0.78 };
+  var SPA = { x: 3.65, z: 6.85, w: 3.6, d: 3.6, y: 0.78 };
 
   function addBox(w, h, d, mat, x, y, z) {
     var mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -472,8 +472,8 @@
   // Firebaskets flanking the Southeast pool corner (each has 2 spillways)
   // ------------------------------------------------------------------
   var basketDefs = {
-    east: { x: 4.25, z: 5.85, poolAngle: Math.PI, spaAngle: 0 },
-    west: { x: 2.65, z: 7.45, poolAngle: -Math.PI / 2, spaAngle: Math.PI / 2 }
+    east: { x: 3.20, z: 5.05, poolAngle: Math.PI, spaAngle: 0 },
+    west: { x: 1.85, z: 6.40, poolAngle: -Math.PI / 2, spaAngle: Math.PI / 2 }
   };
   var baskets = {};
 
@@ -700,33 +700,60 @@
   jetskiLabel.position.set(15.5, 2.4, 4.5);
 
   // ------------------------------------------------------------------
-  // West side: House at 2732 NE 23rd Ave
+  // West side: Two-Story House at 2732 NE 23rd Ave
   // ------------------------------------------------------------------
   var houseGroup = new THREE.Group();
   scene.add(houseGroup);
 
-  var stuccoMat = new THREE.MeshStandardMaterial({ color: 0xf3f5f7, roughness: 0.9, metalness: 0.02 });
+  var stuccoMat = new THREE.MeshStandardMaterial({ color: 0xf5f7fa, roughness: 0.88, metalness: 0.03 });
   var fasciaMat = new THREE.MeshStandardMaterial({ color: 0x222a2e, roughness: 0.6 });
   var glassSliderMat = new THREE.MeshStandardMaterial({
-    color: 0x3d7085, roughness: 0.1, metalness: 0.85, transparent: true, opacity: 0.72
+    color: 0x3d7085, roughness: 0.08, metalness: 0.85, transparent: true, opacity: 0.75
   });
 
-  addBoxLocal(houseGroup, 8.0, 4.6, 26.0, stuccoMat, -13.0, 2.3, 0);
-  addBoxLocal(houseGroup, 8.4, 0.35, 26.4, fasciaMat, -13.0, 4.75, 0);
-  addBoxLocal(houseGroup, 2.4, 0.25, 20.0, fasciaMat, -7.8, 3.9, 0);
+  // Story 1: Ground floor main structure (y: 0 to 4.2)
+  addBoxLocal(houseGroup, 8.5, 4.2, 26.0, stuccoMat, -13.2, 2.1, 0);
 
+  // Covered Lanai ceiling & patio columns (y = 3.9)
+  addBoxLocal(houseGroup, 2.8, 0.28, 20.0, fasciaMat, -7.6, 3.9, 0);
   [-8.5, -3.0, 3.0, 8.5].forEach(function (cz) {
-    addBoxLocal(houseGroup, 0.35, 3.8, 0.35, stuccoMat, -6.8, 1.9, cz);
+    addBoxLocal(houseGroup, 0.38, 3.8, 0.38, stuccoMat, -6.6, 1.9, cz);
   });
 
+  // 1st Floor wide sliding glass door panels (facing pool)
   addBoxLocal(houseGroup, 0.08, 3.2, 16.0, glassSliderMat, -8.95, 1.6, 0);
 
-  var houseLight = new THREE.PointLight(0xffdfa8, 1.2, 18, 2);
-  houseLight.position.set(-10.2, 2.2, 0);
-  houseGroup.add(houseLight);
+  // Story 2: Intermediate floor band & Balcony (y = 4.1 to 8.4)
+  addBoxLocal(houseGroup, 8.8, 0.35, 26.4, fasciaMat, -13.2, 4.2, 0);
 
+  // Story 2: Upper floor structure
+  addBoxLocal(houseGroup, 8.0, 4.0, 24.0, stuccoMat, -13.2, 6.3, 0);
+
+  // Story 2: Covered balcony / terrace over the pool
+  addBoxLocal(houseGroup, 2.0, 0.2, 14.0, fasciaMat, -8.0, 4.2, 0);
+  // Upper balcony glass railing
+  addBoxLocal(houseGroup, 0.06, 0.95, 14.0, glassSliderMat, -7.0, 4.8, 0);
+
+  // Story 2: Upper bedroom / master suite sliding glass windows
+  [-4.0, 4.0].forEach(function (wz) {
+    addBoxLocal(houseGroup, 0.08, 2.2, 5.2, glassSliderMat, -9.2, 6.4, wz);
+  });
+
+  // Modern 2-story roof fascia / parapet (y = 8.4)
+  addBoxLocal(houseGroup, 8.5, 0.4, 25.0, fasciaMat, -13.2, 8.4, 0);
+
+  // Warm interior lights from 1st and 2nd stories
+  var houseLight1 = new THREE.PointLight(0xffdfa8, 1.2, 18, 2);
+  houseLight1.position.set(-10.2, 2.2, 0);
+  houseGroup.add(houseLight1);
+
+  var houseLight2 = new THREE.PointLight(0xffdfa8, 1.0, 16, 2);
+  houseLight2.position.set(-10.2, 6.4, 0);
+  houseGroup.add(houseLight2);
+
+  // House address sign
   var houseLabel = makeLabel("2732 NE 23RD AVE", "#e2f7ff");
-  houseLabel.position.set(-7.5, 4.25, 0);
+  houseLabel.position.set(-6.5, 4.4, 0);
 
   // ------------------------------------------------------------------
   // Lights in the water
@@ -1239,7 +1266,7 @@
       var rWave = Math.sin(x * 1.15 + t * 1.6) * 0.035 +
         Math.cos(y * 1.45 - t * 1.2) * 0.03;
       if (waterfallIntensity > 0.001) {
-        var dImpact = Math.sqrt((x - 2.90) * (x - 2.90) + (y - (-5.60)) * (y - (-5.60)));
+        var dImpact = Math.sqrt((x - 2.05) * (x - 2.05) + (y - (-4.75)) * (y - (-4.75)));
         if (dImpact < 3.2) {
           rWave += Math.sin(dImpact * 6.5 - t * 9.5) * (0.045 / (1.0 + dImpact * 1.4)) * waterfallIntensity;
         }
