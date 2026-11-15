@@ -501,6 +501,21 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(res)
             return
 
+        if path == "/api/intellicenter/chlorinator":
+            res = CONTROLLER.command("ic_set_chlorinator", data)
+            self.send_json(res)
+            return
+
+        if path == "/api/intellicenter/valve":
+            res = CONTROLLER.command("ic_set_valve", data)
+            self.send_json(res)
+            return
+
+        if path == "/api/intellicenter/schedule":
+            res = CONTROLLER.set_schedule(enabled=data.get("enabled"), runs=data.get("runs"))
+            self.send_json(res)
+            return
+
         if path == "/api/intellicenter/open":
             launch = bool(data.get("launch") or data.get("browser"))
             res = CONTROLLER.open_host_page(launch_browser=launch)

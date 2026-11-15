@@ -474,6 +474,18 @@ class PoolController:
                 )
             if action in ("ic_scan", "scan"):
                 return self.scan_and_adjust(reason="user_command", force=bool(payload.get("force", True)))
+            if action in ("ic_set_chlorinator", "set_chlorinator", "set_intellichlor"):
+                return self.ic_set_chlorinator(
+                    output_percent=payload.get("output_percent"),
+                    super_chlorinate=payload.get("super_chlorinate"),
+                    salt_ppm=payload.get("salt_ppm"),
+                )
+            if action in ("ic_set_valve", "set_valve"):
+                return self.ic_set_valve(
+                    objnam=payload.get("objnam", "V1001"),
+                    position=payload.get("position"),
+                    on=payload.get("on"),
+                )
             if action == "refresh":
                 self._merge_panel_state()
                 return self._result(True, "State refreshed")
@@ -706,6 +718,52 @@ class PoolController:
         res["url"] = url
         res["launched"] = launched
         return res
+
+    def ic_set_chlorinator(
+        self,
+        output_percent: int | None = None,
+        super_chlorinate: bool | None = None,
+        salt_ppm: int | None = None,
+    ) -> dict[str, Any]:
+        with self.lock:
+            inventory = self.bridge.inventory()
+            chems = inventory.get("chemistry", [])
+            chem_objnam = chems[0]["objnam"] if chems else "CH101"
+            params: dict[str, Any] = {}
+            if output_percent is not None:
+                pct = max(0, min(100, int(output_percent)))
+                params["CHLOR"] = str(pct)
+                params["CHLORREQ"] = str(pct)
+            if salt_ppm is not None:
+                ppm = max(1000, min(6000, int(salt_ppm)))
+                params["SALT"] = str(ppm)
+                self._salt_ppm = ppm
+                self.state_data["chemistry"]["salt"] = ppm
+            if super_chlorinate is not None:
+                params["SUPER"] = "ON" if super_chlorinate else "OFF"
+
+            ok, msg = self.bridge.set_device_state(chem_objnam, params=params)
+            self._merge_panel_state()
+            return self._result(ok, "IntelliChlor settings updated", msg)
+
+    def ic_set_valve(
+        self,
+        objnam: str,
+        position: str | None = None,
+        on: bool | None = None,
+    ) -> dict[str, Any]:
+        with self.lock:
+            params: dict[str, Any] = {}
+            if position:
+                pos_upper = str(position).upper()
+                params["POSIT"] = pos_upper
+                params["CIRCUIT"] = pos_upper
+                on_val = pos_upper != "OFF"
+            else:
+                on_val = bool(on)
+            ok, msg = self.bridge.set_device_state(objnam, on=on_val, params=params)
+            self._merge_panel_state()
+            return self._result(ok, f"Valve {objnam} adjusted", msg)
 
     # ------------------------------------------------------------------
     # Pumps

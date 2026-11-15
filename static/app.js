@@ -179,6 +179,9 @@
     if ($("view-panel") && $("view-panel").classList.contains("active")) {
       loadIntelliCenter3D();
     }
+    if ($("view-logic") && $("view-logic").classList.contains("active")) {
+      renderPoolLogic();
+    }
   }
 
   function temp(value) {
@@ -1994,7 +1997,7 @@
             extraHtml = '<div class="ic-extra-controls"><span class="muted" style="font-size:0.72rem;">Valve Position: <b>' + escapeHtml(pos) + '</b></span></div>';
           }
 
-          var deleteBtnHtml = obj.custom ? '<button class="btn small danger ic-delete-btn" data-objnam="' + escapeHtml(obj.objnam) + '" data-name="' + escapeHtml(obj.name) + '">Delete</button>' : '';
+          var deleteBtnHtml = '<button class="btn small danger ic-delete-btn" data-objnam="' + escapeHtml(obj.objnam) + '" data-name="' + escapeHtml(obj.name) + '">Delete</button>';
 
           return '<div class="ic-card' + (isOn ? ' is-on' : '') + '">' +
             '<div class="ic-card-head">' +
@@ -2029,7 +2032,10 @@
       }
     }
 
-    // 4. Render animation mapping section
+    // 4. Update manager dropdowns if active
+    if (window.refreshIntelliCenterManager) window.refreshIntelliCenterManager();
+
+    // 5. Render animation mapping section
     renderAnimationMappingForm(icData);
   }
 
@@ -2272,6 +2278,8 @@
           window.panel3d.update(state, icData ? icData.inventory : null);
         }, 50);
       }
+    } else if (wanted === "logic") {
+      renderPoolLogic();
     } else if (wanted === "alexa") {
       loadAlexa();
     } else if (wanted === "setup") {
@@ -2280,8 +2288,813 @@
     }
   }
 
+
+  // ------------------------------------------------------------------
+  // Pool Logic Visualization & Simulation Engine
+  // ------------------------------------------------------------------
+  var logicLogs = [];
+
+  function logLogicEvent(rule, message) {
+    var ts = new Date().toLocaleTimeString();
+    var entry = "[" + ts + "] [" + rule + "] " + message;
+    logicLogs.unshift(entry);
+    if (logicLogs.length > 50) logicLogs.pop();
+    var box = $("logicLogBox");
+    if (box) {
+      box.innerHTML = logicLogs.map(function (l) { return "<div>" + escapeHtml(l) + "</div>"; }).join("");
+    }
+  }
+
+  function renderPoolLogic() {
+    var mode = (state && state.mode) || "pool";
+    var isSpa = mode === "spa";
+    var bodies = (state && state.bodies) || {};
+    var pumps = (state && state.pumps) || {};
+    var mainP = pumps.main || {};
+    var featP = pumps.features || {};
+    var heater = (state && state.heater) || {};
+    var blower = (state && state.blower) || {};
+    var jets = (state && state.deck_jets) || {};
+    var baskets = (state && state.firebaskets) || {};
+    var chem = (state && state.chemistry) || {};
+
+    var poolTemp = bodies.pool && bodies.pool.temp;
+    var spaTemp = bodies.spa && bodies.spa.temp;
+    var mainOn = !!mainP.on;
+    var mainRpm = parseInt(mainP.rpm || 2200, 10);
+    var featOn = !!featP.on;
+    var featRpm = parseInt(featP.rpm || 2800, 10);
+    var heaterOn = !!heater.on;
+    var blowerOn = !!blower.on;
+    var anyFeaturesOn = Object.values(jets).some(function (j) { return j.on; }) || Object.values(baskets).some(function (b) { return b.on; });
+
+    // Update Status Bar
+    if ($("logicModeBadge")) {
+      $("logicModeBadge").textContent = (isSpa ? "SPA MODE (HYDROTHERAPY)" : "POOL MODE (FILTRATION)");
+      $("logicModeBadge").className = "chip live" + (isSpa ? " spa" : "");
+    }
+    if ($("logicStatMode")) {
+      $("logicStatMode").textContent = isSpa ? "SPA (100% ISOLATED)" : "POOL (80/20 SPILLOVER)";
+      $("logicStatMode").style.color = isSpa ? "#f59e0b" : "var(--cyan)";
+    }
+    if ($("logicStatMainPump")) {
+      $("logicStatMainPump").textContent = mainRpm + " RPM (" + (mainOn ? "RUNNING" : "STOPPED") + ")";
+      $("logicStatMainPump").style.color = mainOn ? "#10b981" : "var(--muted)";
+    }
+    if ($("logicStatFeatPump")) {
+      $("logicStatFeatPump").textContent = featOn ? featRpm + " RPM (ACTIVE)" : "OFF (IDLE)";
+      $("logicStatFeatPump").style.color = featOn ? "#10b981" : "var(--muted)";
+    }
+
+    // Gate 1: Mode Switch
+    if ($("pillGateMode")) {
+      $("pillGateMode").textContent = isSpa ? "SPA 100% ISOLATED" : "POOL 80/20 SPILLWAY";
+      $("pillGateMode").style.background = isSpa ? "rgba(245,158,11,0.2)" : "rgba(0,240,255,0.15)";
+      $("pillGateMode").style.color = isSpa ? "#f59e0b" : "var(--cyan)";
+    }
+    if ($("descGateMode")) {
+      $("descGateMode").textContent = isSpa
+        ? "Suction drawn 100% from spa bottom drain, discharge returning 100% to spa hydrotherapy jets."
+        : "Suction drawn 80% from pool skimmer/drain, discharge returning 80% to spa with overflow cascade spillway.";
+    }
+
+    // Gate 2: Heater Flow Interlock
+    var flowOk = mainOn && mainRpm >= 1500;
+    if ($("logicStatHeaterFlow")) {
+      $("logicStatHeaterFlow").textContent = flowOk ? "CLOSED (FLOW OK)" : "OPEN (NO FLOW)";
+      $("logicStatHeaterFlow").style.color = flowOk ? "#10b981" : "#ef4444";
+    }
+    if ($("pillGateHeater")) {
+      if (heaterOn && !flowOk) {
+        $("pillGateHeater").textContent = "TRIPPED (LOW FLOW)";
+        $("pillGateHeater").style.background = "rgba(239,68,68,0.2)";
+        $("pillGateHeater").style.color = "#ef4444";
+      } else if (heaterOn && flowOk) {
+        $("pillGateHeater").textContent = "FIRING (HEATING ACTIVE)";
+        $("pillGateHeater").style.background = "rgba(245,158,11,0.25)";
+        $("pillGateHeater").style.color = "#f59e0b";
+      } else {
+        $("pillGateHeater").textContent = "SAFE (READY)";
+        $("pillGateHeater").style.background = "rgba(16,185,129,0.15)";
+        $("pillGateHeater").style.color = "#10b981";
+      }
+    }
+
+    // Gate 3: Blower Lockout
+    if ($("logicStatBlowerLock")) {
+      $("logicStatBlowerLock").textContent = isSpa ? (blowerOn ? "ENERGIZED (ON)" : "UNLOCKED (STANDBY)") : "LOCKED (POOL MODE)";
+      $("logicStatBlowerLock").style.color = isSpa ? "#10b981" : "#8ab";
+    }
+    if ($("pillGateBlower")) {
+      $("pillGateBlower").textContent = isSpa ? (blowerOn ? "ACTIVE" : "STANDBY") : "LOCKED OUT";
+      $("pillGateBlower").style.background = isSpa ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.15)";
+      $("pillGateBlower").style.color = isSpa ? "#10b981" : "#fca5a5";
+    }
+
+    // Gate 4: Features Pump Interlock
+    if ($("pillGateFeatures")) {
+      $("pillGateFeatures").textContent = anyFeaturesOn ? "ACTIVE (2800 RPM)" : "IDLE (0 ON)";
+      $("pillGateFeatures").style.background = anyFeaturesOn ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)";
+      $("pillGateFeatures").style.color = anyFeaturesOn ? "#10b981" : "#8ab";
+    }
+
+    // Sensor node values
+    if ($("valLogicPoolTemp")) $("valLogicPoolTemp").textContent = poolTemp ? (poolTemp + "°F") : "84°F (Set: 84°F)";
+    if ($("valLogicSpaTemp")) $("valLogicSpaTemp").textContent = spaTemp ? (spaTemp + "°F") : "102°F (Set: 102°F)";
+    if ($("valLogicFlow")) $("valLogicFlow").textContent = flowOk ? ("FLOW OK (" + mainRpm + " RPM >= 1500)") : "FLOW LOW (< 1500 RPM)";
+    if ($("valLogicSalt")) $("valLogicSalt").textContent = (chem.salt || 3200) + " PPM (OPTIMAL: 2800-3600)";
+    var activeRunName = (state.schedule && state.schedule.active_run) || "Main VSR daytime";
+    if ($("valLogicSchedule")) $("valLogicSchedule").textContent = "Active: " + activeRunName;
+
+    // Actuators
+    if ($("valActuatorSuction")) $("valActuatorSuction").textContent = isSpa ? "100% Spa Drain" : "80% Pool / 20% Spa";
+    if ($("valActuatorReturn")) $("valActuatorReturn").textContent = isSpa ? "100% Spa Return Jets" : "80% Spa (Spillway) / 20% Pool";
+    if ($("valActuatorMainPump")) $("valActuatorMainPump").textContent = mainOn ? (mainRpm + " RPM • " + Math.round(mainRpm * 0.02) + " GPM • " + Math.round(mainRpm * 0.22) + "W") : "STOPPED (0 RPM)";
+    if ($("valActuatorFeatPump")) $("valActuatorFeatPump").textContent = featOn ? (featRpm + " RPM • ACTIVE") : "OFF (0 RPM)";
+    if ($("valActuatorHeater")) $("valActuatorHeater").textContent = heaterOn ? "HEATING ACTIVE (Setpoint: 102°F)" : "OFF (Standby)";
+    if ($("valActuatorChlor")) $("valActuatorChlor").textContent = mainOn ? "Generating Sanitizer @ 60%" : "Standby (Awaiting Pump Flow)";
+  }
+
+  function initPoolLogicVisualization() {
+    document.querySelectorAll(".logic-scenario-btn").forEach(function (btn) {
+      btn.addEventListener("click", async function () {
+        var scenario = btn.getAttribute("data-scenario");
+        btn.disabled = true;
+        try {
+          if (scenario === "pool_day") {
+            logLogicEvent("SCENARIO", "Executing Daytime Pool Filtration: Pool Mode, Main Pump @ 2200 RPM");
+            await command("set_mode", { mode: "pool" });
+            await command("set_pump", { pump: "main", on: true, rpm: 2200 });
+            toast("Daytime filtration scenario applied", "good");
+          } else if (scenario === "spa_session") {
+            logLogicEvent("SCENARIO", "Executing Spa Hydrotherapy: Spa Mode, Gas Heater ON @ 102°F, Blower ON");
+            await command("set_mode", { mode: "spa" });
+            await command("set_heater", { on: true, setpoint: 102 });
+            await command("set_blower", { on: true });
+            toast("Spa hydrotherapy scenario applied", "good");
+          } else if (scenario === "water_show") {
+            logLogicEvent("SCENARIO", "Executing Water & Light Show: Features Pump 2800 RPM, Laminars ON, Firebaskets ON, Party Lights");
+            await command("set_deck_jet", { id: "ne", on: true });
+            await command("set_deck_jet", { id: "nw", on: true });
+            await command("set_firebasket", { id: "east", on: true });
+            await command("set_light", { body: "pool", on: true, effect: "PARTY" });
+            toast("Water & light show scenario applied", "good");
+          } else if (scenario === "freeze_safety") {
+            logLogicEvent("SAFETY", "Simulating Freeze Protection (Ambient 35°F <= 36°F): Circulating all lines at 2400 RPM");
+            await command("set_pump", { pump: "main", on: true, rpm: 2400 });
+            toast("Freeze safety simulation engaged", "good");
+          } else if (scenario === "all_off") {
+            logLogicEvent("SAFETY", "Emergency All-Off: Disengaging heater, features, and pumps immediately");
+            await command("system_off", {});
+            toast("All equipment stopped", "good");
+          } else if (scenario === "realign") {
+            logLogicEvent("SCAN", "Re-scanning IntelliCenter hardware and re-aligning state");
+            await api("/api/intellicenter/scan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) });
+            toast("Hardware scanned and realigned", "good");
+          }
+          await refresh();
+          renderPoolLogic();
+        } catch (err) {
+          toast("Scenario failed: " + err.message, "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    if ($("clearLogicLogBtn")) {
+      $("clearLogicLogBtn").addEventListener("click", function () {
+        logicLogs = [];
+        if ($("logicLogBox")) $("logicLogBox").innerHTML = '<div style="color:var(--muted)">Log cleared. Listening for state transitions...</div>';
+      });
+    }
+
+    logLogicEvent("SYSTEM", "Pool Logic & Simulation Engine initialized. All safety interlocks monitored.");
+    renderPoolLogic();
+  }
+
+  // ------------------------------------------------------------------
+  // Interactive IntelliCenter Manager (Add, Edit, Delete, Schedules, Valves, Relays, Pumps, Chlorinator, Lights)
+  // ------------------------------------------------------------------
+  function initIntelliCenterManager() {
+    var catSelect = $("icMgrCategory");
+    var actSelect = $("icMgrAction");
+    var targetSelect = $("icMgrTargetSelect");
+    var targetLabel = $("icMgrTargetLabel");
+    var formBox = $("icMgrFormContainer");
+    var submitBtn = $("icMgrSubmitBtn");
+    var resetBtn = $("icMgrResetBtn");
+
+    if (!catSelect || !actSelect || !formBox) return;
+
+    function getItemsForCategory(cat) {
+      var inv = (icData && icData.inventory) || {};
+      var objects = inv.objects || [];
+      if (cat === "valves") {
+        return objects.filter(function (o) { return o.objtype === "VALVE" || (o.objnam && o.objnam.indexOf("V") === 0); });
+      }
+      if (cat === "relays") {
+        return objects.filter(function (o) {
+          var name = (o.name || "").toLowerCase();
+          var sub = (o.subtype || "").toUpperCase();
+          return sub === "RELAY" || sub === "AUX" || name.indexOf("aux") !== -1 || name.indexOf("relay") !== -1 || o.objtype === "CIRCUIT";
+        });
+      }
+      if (cat === "pumps") {
+        return objects.filter(function (o) { return o.objtype === "PUMP" || (o.objnam && o.objnam.indexOf("P") === 0); });
+      }
+      if (cat === "lights") {
+        return objects.filter(function (o) {
+          var sub = (o.subtype || "").toUpperCase();
+          var name = (o.name || "").toLowerCase();
+          return sub === "INTELLI" || sub === "LIGHT" || sub === "GLOW" || sub === "GLOWT" || name.indexOf("light") !== -1;
+        });
+      }
+      if (cat === "chlorinator") {
+        return objects.filter(function (o) { return o.objtype === "CHEM" || (o.objnam && o.objnam.indexOf("CH") === 0); });
+      }
+      if (cat === "schedules") {
+        var runs = (state && state.schedule && state.schedule.runs) || [];
+        return runs.map(function (r, idx) {
+          return { objnam: "run_" + idx, name: (r.name || "Run " + (idx + 1)) + " (" + (r.start || "08:00") + "-" + (r.end || "18:00") + " @ " + (r.rpm || 2200) + " RPM)", index: idx, run: r };
+        });
+      }
+      return objects;
+    }
+
+    function renderManagerForm() {
+      var cat = catSelect.value || "valves";
+      var act = actSelect.value || "add";
+      var items = getItemsForCategory(cat);
+
+      var showTarget = (act !== "add" || cat === "chlorinator");
+      if (targetLabel) targetLabel.style.display = showTarget ? "flex" : "none";
+
+      if (targetSelect && showTarget) {
+        var prevVal = targetSelect.value;
+        targetSelect.innerHTML = items.map(function (item) {
+          return '<option value="' + escapeHtml(item.objnam || "") + '">' + escapeHtml(item.name || item.objnam) + '</option>';
+        }).join("");
+        if (prevVal && items.some(function (i) { return i.objnam === prevVal; })) {
+          targetSelect.value = prevVal;
+        } else if (items.length) {
+          targetSelect.value = items[0].objnam;
+        }
+      }
+
+      var selectedId = (targetSelect && targetSelect.value) || (items[0] && items[0].objnam);
+      var selectedItem = items.find(function (i) { return i.objnam === selectedId; }) || items[0] || {};
+      var attrs = selectedItem.attrs || {};
+
+      var formHtml = "";
+
+      if (act === "delete") {
+        formHtml = '<div style="color:#ef4444; font-size:0.85rem; padding:8px 0;">' +
+          '⚠️ <strong>Delete Confirmation:</strong> Are you sure you want to delete <strong>' +
+          escapeHtml(selectedItem.name || selectedItem.objnam || "this item") + '</strong> (' + escapeHtml(selectedId || "") + ') from the IntelliCenter?' +
+          '</div>';
+      } else if (cat === "schedules") {
+        var r = (selectedItem && selectedItem.run) || {};
+        var rName = act === "add" ? "New Pump Schedule" : (r.name || "Main VSR Run");
+        var rStart = act === "add" ? "08:00" : (r.start || "08:00");
+        var rEnd = act === "add" ? "18:00" : (r.end || "18:00");
+        var rRpm = act === "add" ? 2200 : (r.rpm || 2200);
+        var rDays = (act === "add" ? ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] : (r.days || ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]));
+
+        var daysHtml = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map(function (d) {
+          var checked = rDays.indexOf(d) >= 0 ? " checked" : "";
+          return '<label style="display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; color:#cbd5e1; cursor:pointer;">' +
+            '<input type="checkbox" class="ic-mgr-day" value="' + d + '"' + checked + '> ' + d.toUpperCase() +
+            '</label>';
+        }).join(" ");
+
+        formHtml = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Schedule Name' +
+          '<input type="text" id="icMgrSchName" class="form-input" value="' + escapeHtml(rName) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Target Equipment' +
+          '<select id="icMgrSchTarget" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="main">MAIN PUMP (Filtration VSR)</option>' +
+          '<option value="features">FEATURES PUMP (Water Features VSR)</option>' +
+          '<option value="aux">AUX RELAY (Cleaner / Feature)</option>' +
+          '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Start Time' +
+          '<input type="time" id="icMgrSchStart" class="form-input" value="' + escapeHtml(rStart) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">End Time' +
+          '<input type="time" id="icMgrSchEnd" class="form-input" value="' + escapeHtml(rEnd) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Pump Speed (RPM)' +
+          '<input type="number" id="icMgrSchRpm" min="450" max="3450" step="25" class="form-input" value="' + rRpm + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<div style="grid-column: 1 / -1; margin-top:4px;">' +
+          '<div style="font-size:0.75rem; color:#cbd5e1; margin-bottom:4px;">Operating Days:</div>' +
+          '<div style="display:flex; gap:10px; flex-wrap:wrap;">' + daysHtml + '</div>' +
+          '</div>' +
+          '</div>';
+      } else if (cat === "chlorinator") {
+        var saltPpm = (state.chemistry && state.chemistry.salt) || parseInt(attrs.SALT || 3200, 10);
+        var chlorPct = parseInt(attrs.CHLOR || attrs.CHLORREQ || 60, 10);
+        var isSuper = (attrs.SUPER === "ON");
+
+        formHtml = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Sanitizer Output Level (0% - 100%)' +
+          '<div style="display:flex; align-items:center; gap:8px;">' +
+          '<input type="range" id="icMgrChlorSlider" min="0" max="100" step="5" value="' + chlorPct + '" style="flex:1;">' +
+          '<span id="icMgrChlorVal" style="font-weight:700; color:var(--cyan); width:45px;">' + chlorPct + '%</span>' +
+          '</div>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Target Salt Salinity (PPM)' +
+          '<input type="number" id="icMgrSaltPpm" min="2000" max="4500" step="50" class="form-input" value="' + saltPpm + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Super Chlorinate (24-Hour Shock)' +
+          '<div style="display:flex; align-items:center; gap:8px; margin-top:4px;">' +
+          '<label class="switch"><input type="checkbox" id="icMgrSuperChlor"' + (isSuper ? ' checked' : '') + '><span class="slider"></span></label>' +
+          '<span style="font-size:0.78rem; color:#f59e0b; font-weight:600;">24-Hr Maximum Chlorine Boost</span>' +
+          '</div>' +
+          '</label>' +
+          '<div style="grid-column:1 / -1; font-size:0.75rem; color:#8ab; background:rgba(0,240,255,0.06); padding:8px; border-radius:6px;">' +
+          '📊 <strong>Live IntelliChlor Diagnostics:</strong> Current Salt: <b>' + saltPpm + ' PPM</b> (Optimal: 2800-3600 PPM) &bull; Cell Status: <b>' + (attrs.QUALTY || "GOOD") + '</b> &bull; Flow Switch: <b>' + (attrs.FLOW || "OK") + '</b>' +
+          '</div>' +
+          '</div>';
+      } else if (cat === "valves") {
+        var vName = act === "add" ? "Water Feature 3-Way Valve" : (selectedItem.name || "Valve Actuator");
+        var curPos = (attrs.POSIT || attrs.CIRCUIT || "POOL").toUpperCase();
+
+        formHtml = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Valve Name' +
+          '<input type="text" id="icMgrValveName" class="form-input" value="' + escapeHtml(vName) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Valve Port Socket' +
+          '<select id="icMgrValvePort" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="V_A">Valve Socket A (Intake/Suction)</option>' +
+          '<option value="V_B">Valve Socket B (Return/Discharge)</option>' +
+          '<option value="V_SOLAR">Solar Valve Socket</option>' +
+          '<option value="V_AUX1">Aux Valve Socket 1</option>' +
+          '<option value="V_AUX2">Aux Valve Socket 2</option>' +
+          '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Target Position' +
+          '<select id="icMgrValvePos" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="POOL"' + (curPos === "POOL" ? ' selected' : '') + '>POOL Circulation (80/20 Spillway)</option>' +
+          '<option value="SPA"' + (curPos === "SPA" ? ' selected' : '') + '>SPA Hydrotherapy (100% Isolated)</option>' +
+          '<option value="SOLAR"' + (curPos === "SOLAR" ? ' selected' : '') + '>Solar Heating Flow</option>' +
+          '<option value="OFF"' + (curPos === "OFF" ? ' selected' : '') + '>Closed / Off</option>' +
+          '</select>' +
+          '</label>' +
+          '</div>';
+      } else if (cat === "pumps") {
+        var pName = act === "add" ? "Secondary VSR Pump" : (selectedItem.name || "MAIN PUMP");
+        var curSpeed = parseInt(attrs.SPEED || attrs.RPM || 2200, 10);
+        var pOn = (selectedItem.status === "10" || attrs.STATUS === "10");
+
+        formHtml = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Pump Name' +
+          '<input type="text" id="icMgrPumpName" class="form-input" value="' + escapeHtml(pName) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Pump Model &amp; Type' +
+          '<select id="icMgrPumpType" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="VS">Pentair IntelliFlo VSF (Variable Speed &amp; Flow)</option>' +
+          '<option value="2SPD">Two-Speed Pump</option>' +
+          '<option value="1SPD">Single-Speed Pump</option>' +
+          '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Speed RPM (450 - 3450)' +
+          '<div style="display:flex; align-items:center; gap:8px;">' +
+          '<input type="range" id="icMgrPumpSlider" min="450" max="3450" step="25" value="' + curSpeed + '" style="flex:1;">' +
+          '<span id="icMgrPumpSpeedVal" style="font-weight:700; color:var(--cyan); width:70px;">' + curSpeed + ' RPM</span>' +
+          '</div>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Power State' +
+          '<div style="display:flex; align-items:center; gap:8px; margin-top:4px;">' +
+          '<label class="switch"><input type="checkbox" id="icMgrPumpPower"' + (pOn ? ' checked' : '') + '><span class="slider"></span></label>' +
+          '<span style="font-size:0.78rem; color:#10b981;">Pump Motor Running</span>' +
+          '</div>' +
+          '</label>' +
+          '<div style="grid-column:1 / -1; display:flex; gap:6px; align-items:center; margin-top:4px;">' +
+          '<span style="font-size:0.75rem; color:#8ab;">Speed Presets:</span>' +
+          '<button type="button" class="btn small ic-mgr-preset" data-rpm="1200" style="padding:2px 8px; font-size:0.7rem;">1200 Eco</button>' +
+          '<button type="button" class="btn small ic-mgr-preset" data-rpm="2200" style="padding:2px 8px; font-size:0.7rem;">2200 Clean</button>' +
+          '<button type="button" class="btn small ic-mgr-preset" data-rpm="2800" style="padding:2px 8px; font-size:0.7rem;">2800 High</button>' +
+          '<button type="button" class="btn small ic-mgr-preset" data-rpm="3450" style="padding:2px 8px; font-size:0.7rem;">3450 Max</button>' +
+          '</div>' +
+          '</div>';
+      } else if (cat === "lights") {
+        var lName = act === "add" ? "Landscape Patio Lights" : (selectedItem.name || "POOL LIGHT");
+        var lEffect = (attrs.ACT || attrs.USE || "BLUER").toUpperCase();
+        var lOn = (selectedItem.status === "ON");
+
+        var effectsOpts = Object.keys(DEFAULT_EFFECTS).map(function (k) {
+          return '<option value="' + k + '"' + (k === lEffect ? ' selected' : '') + '>' + DEFAULT_EFFECTS[k] + '</option>';
+        }).join("");
+
+        formHtml = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Light Name' +
+          '<input type="text" id="icMgrLightName" class="form-input" value="' + escapeHtml(lName) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Light Type' +
+          '<select id="icMgrLightType" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="INTELLI">Pentair IntelliBrite 5G (Color LED)</option>' +
+          '<option value="GLOW">Pentair GloBrite / ColorCascade</option>' +
+          '<option value="LIGHT">Standard 120V/12V White Light Relay</option>' +
+          '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Color Program / Light Effect' +
+          '<select id="icMgrLightEffect" class="select" style="padding:6px; font-size:0.8rem;">' + effectsOpts + '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Power Switch' +
+          '<div style="display:flex; align-items:center; gap:8px; margin-top:4px;">' +
+          '<label class="switch"><input type="checkbox" id="icMgrLightPower"' + (lOn ? ' checked' : '') + '><span class="slider"></span></label>' +
+          '<span style="font-size:0.78rem; color:#00f0ff;">Light Illuminated</span>' +
+          '</div>' +
+          '</label>' +
+          '</div>';
+      } else if (cat === "relays") {
+        var rName = act === "add" ? "Aux Relay 3 (Cleaner)" : (selectedItem.name || "Aux Relay 1");
+        var rOn = (selectedItem.status === "ON");
+        var rSub = (selectedItem.subtype || "GENERIC").toUpperCase();
+
+        formHtml = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Relay Name' +
+          '<input type="text" id="icMgrRelayName" class="form-input" value="' + escapeHtml(rName) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Aux Channel / Relay Port' +
+          '<select id="icMgrRelayPort" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="AUX1">Aux 1 (High-Voltage Relay 1)</option>' +
+          '<option value="AUX2">Aux 2 (High-Voltage Relay 2)</option>' +
+          '<option value="AUX3">Aux 3 (High-Voltage Relay 3)</option>' +
+          '<option value="AUX4">Aux 4 (High-Voltage Relay 4)</option>' +
+          '<option value="AUX5">Aux 5 (High-Voltage Relay 5)</option>' +
+          '<option value="AUX6">Aux 6 (High-Voltage Relay 6)</option>' +
+          '<option value="AUX7">Aux 7 (High-Voltage Relay 7)</option>' +
+          '<option value="AUX8">Aux 8 (High-Voltage Relay 8)</option>' +
+          '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Circuit Function Type' +
+          '<select id="icMgrRelaySub" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="GENERIC"' + (rSub === "GENERIC" ? ' selected' : '') + '>Generic Auxiliary Relay</option>' +
+          '<option value="CLEANER"' + (rSub === "CLEANER" ? ' selected' : '') + '>Pool Pressure Cleaner Booster</option>' +
+          '<option value="BLOWER"' + (rSub === "BLOWER" ? ' selected' : '') + '>Hydrotherapy Air Blower</option>' +
+          '<option value="MAGIC2"' + (rSub === "MAGIC2" ? ' selected' : '') + '>Laminar Deck Jet</option>' +
+          '<option value="LIGHT"' + (rSub === "LIGHT" ? ' selected' : '') + '>Landscape / Feature Lighting</option>' +
+          '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Power State' +
+          '<div style="display:flex; align-items:center; gap:8px; margin-top:4px;">' +
+          '<label class="switch"><input type="checkbox" id="icMgrRelayPower"' + (rOn ? ' checked' : '') + '><span class="slider"></span></label>' +
+          '<span style="font-size:0.78rem; color:#10b981;">Relay Energized (ON)</span>' +
+          '</div>' +
+          '</label>' +
+          '</div>';
+      } else {
+        var dName = act === "add" ? "Custom Equipment" : (selectedItem.name || "Device");
+        var dType = (selectedItem.objtype || "CIRCUIT").toUpperCase();
+        var dSub = (selectedItem.subtype || "GENERIC").toUpperCase();
+        var dOn = (selectedItem.status === "ON" || selectedItem.status === "10");
+
+        formHtml = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Device Name' +
+          '<input type="text" id="icMgrDevName" class="form-input" value="' + escapeHtml(dName) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Device Type' +
+          '<select id="icMgrDevType" class="select" style="padding:6px; font-size:0.8rem;">' +
+          '<option value="CIRCUIT"' + (dType === "CIRCUIT" ? ' selected' : '') + '>CIRCUIT (Relay / Load)</option>' +
+          '<option value="VALVE"' + (dType === "VALVE" ? ' selected' : '') + '>VALVE (Motorized Actuator)</option>' +
+          '<option value="PUMP"' + (dType === "PUMP" ? ' selected' : '') + '>PUMP (Pump Motor)</option>' +
+          '<option value="HEATER"' + (dType === "HEATER" ? ' selected' : '') + '>HEATER (Thermostat)</option>' +
+          '<option value="CHEM"' + (dType === "CHEM" ? ' selected' : '') + '>CHEM (Chlorination)</option>' +
+          '</select>' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">Subtype' +
+          '<input type="text" id="icMgrDevSubtype" class="form-input" value="' + escapeHtml(dSub) + '" style="padding:6px; font-size:0.8rem;">' +
+          '</label>' +
+          '<label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#cbd5e1;">State' +
+          '<div style="display:flex; align-items:center; gap:8px; margin-top:4px;">' +
+          '<label class="switch"><input type="checkbox" id="icMgrDevPower"' + (dOn ? ' checked' : '') + '><span class="slider"></span></label>' +
+          '<span style="font-size:0.78rem; color:#10b981;">Active</span>' +
+          '</div>' +
+          '</label>' +
+          '</div>';
+      }
+
+      formBox.innerHTML = formHtml;
+
+      if ($("icMgrChlorSlider") && $("icMgrChlorVal")) {
+        $("icMgrChlorSlider").addEventListener("input", function (e) {
+          $("icMgrChlorVal").textContent = e.target.value + "%";
+        });
+      }
+      if ($("icMgrPumpSlider") && $("icMgrPumpSpeedVal")) {
+        $("icMgrPumpSlider").addEventListener("input", function (e) {
+          $("icMgrPumpSpeedVal").textContent = e.target.value + " RPM";
+        });
+      }
+      formBox.querySelectorAll(".ic-mgr-preset").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var rpm = btn.getAttribute("data-rpm");
+          if ($("icMgrPumpSlider")) $("icMgrPumpSlider").value = rpm;
+          if ($("icMgrPumpSpeedVal")) $("icMgrPumpSpeedVal").textContent = rpm + " RPM";
+        });
+      });
+
+      if (submitBtn) {
+        if (act === "delete") {
+          submitBtn.textContent = "🗑️ Delete from IntelliCenter";
+          submitBtn.className = "btn small danger";
+        } else if (act === "add") {
+          submitBtn.textContent = "➕ Add to IntelliCenter";
+          submitBtn.className = "btn small primary";
+        } else if (act === "control") {
+          submitBtn.textContent = "⚡ Apply Quick Action";
+          submitBtn.className = "btn small primary";
+        } else {
+          submitBtn.textContent = "💾 Save Changes";
+          submitBtn.className = "btn small primary";
+        }
+      }
+    }
+
+    catSelect.addEventListener("change", renderManagerForm);
+    actSelect.addEventListener("change", renderManagerForm);
+    if (targetSelect) targetSelect.addEventListener("change", renderManagerForm);
+    if (resetBtn) resetBtn.addEventListener("click", renderManagerForm);
+
+    if (submitBtn) {
+      submitBtn.addEventListener("click", async function () {
+        var cat = catSelect.value || "valves";
+        var act = actSelect.value || "add";
+        submitBtn.disabled = true;
+        var origText = submitBtn.textContent;
+        submitBtn.textContent = "⏳ Processing...";
+
+        try {
+          if (cat === "schedules") {
+            var runs = (state && state.schedule && state.schedule.runs) ? JSON.parse(JSON.stringify(state.schedule.runs)) : [];
+            var selectedIdx = (targetSelect && targetSelect.value) ? parseInt(targetSelect.value.replace("run_", ""), 10) : 0;
+
+            if (act === "delete") {
+              if (runs.length > 0) {
+                runs.splice(selectedIdx, 1);
+                await api("/api/intellicenter/schedule", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ enabled: true, runs: runs })
+                });
+                toast("Schedule run deleted", "good");
+              }
+            } else {
+              var sName = ($("icMgrSchName") && $("icMgrSchName").value.trim()) || "VSR Run";
+              var sStart = ($("icMgrSchStart") && $("icMgrSchStart").value) || "08:00";
+              var sEnd = ($("icMgrSchEnd") && $("icMgrSchEnd").value) || "18:00";
+              var sRpm = ($("icMgrSchRpm") && parseInt($("icMgrSchRpm").value, 10)) || 2200;
+              var sDays = [];
+              formBox.querySelectorAll(".ic-mgr-day:checked").forEach(function (cb) { sDays.push(cb.value); });
+              if (!sDays.length) sDays = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+              var runObj = { name: sName, start: sStart, end: sEnd, rpm: sRpm, days: sDays };
+              if (act === "add") {
+                runs.push(runObj);
+              } else {
+                runs[selectedIdx] = runObj;
+              }
+
+              await api("/api/intellicenter/schedule", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: true, runs: runs })
+              });
+              toast(act === "add" ? "Schedule run added" : "Schedule updated", "good");
+            }
+            await refresh();
+          } else if (cat === "chlorinator") {
+            var output = $("icMgrChlorSlider") ? parseInt($("icMgrChlorSlider").value, 10) : 60;
+            var salt = $("icMgrSaltPpm") ? parseInt($("icMgrSaltPpm").value, 10) : 3200;
+            var superChl = $("icMgrSuperChlor") ? $("icMgrSuperChlor").checked : false;
+
+            var res = await api("/api/intellicenter/chlorinator", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ output_percent: output, salt_ppm: salt, super_chlorinate: superChl })
+            });
+            toast(res.message || "IntelliChlor settings applied", "good");
+            await loadIntelliCenter();
+          } else if (cat === "valves") {
+            var vObjnam = (targetSelect && targetSelect.value) || "V1001";
+            if (act === "add") {
+              var vName = ($("icMgrValveName") && $("icMgrValveName").value.trim()) || "New Valve Actuator";
+              var vPos = ($("icMgrValvePos") && $("icMgrValvePos").value) || "POOL";
+              await api("/api/intellicenter/device/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objtype: "VALVE", name: vName, subtype: "VALVE", params: { POSIT: vPos } })
+              });
+              toast("Valve added: " + vName, "good");
+            } else if (act === "delete") {
+              await api("/api/intellicenter/device/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objnam: vObjnam })
+              });
+              toast("Valve removed", "good");
+            } else {
+              var vName = $("icMgrValveName") ? $("icMgrValveName").value.trim() : null;
+              var vPos = $("icMgrValvePos") ? $("icMgrValvePos").value : null;
+              if (vPos) {
+                await api("/api/intellicenter/valve", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: vObjnam, position: vPos })
+                });
+              }
+              if (vName && act === "edit") {
+                await api("/api/intellicenter/device/edit", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: vObjnam, name: vName })
+                });
+              }
+              toast("Valve adjusted", "good");
+            }
+            await loadIntelliCenter();
+          } else if (cat === "pumps") {
+            var pObjnam = (targetSelect && targetSelect.value) || "P1001";
+            if (act === "add") {
+              var pName = ($("icMgrPumpName") && $("icMgrPumpName").value.trim()) || "New VSR Pump";
+              var pType = ($("icMgrPumpType") && $("icMgrPumpType").value) || "VS";
+              await api("/api/intellicenter/device/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objtype: "PUMP", name: pName, subtype: pType, params: { SPEED: "2200", RPM: "2200" } })
+              });
+              toast("Pump added: " + pName, "good");
+            } else if (act === "delete") {
+              await api("/api/intellicenter/device/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objnam: pObjnam })
+              });
+              toast("Pump removed", "good");
+            } else {
+              var pName = $("icMgrPumpName") ? $("icMgrPumpName").value.trim() : null;
+              var pSpeed = $("icMgrPumpSlider") ? parseInt($("icMgrPumpSlider").value, 10) : null;
+              var pOn = $("icMgrPumpPower") ? $("icMgrPumpPower").checked : null;
+
+              if (pSpeed !== null || pOn !== null) {
+                await api("/api/intellicenter/device/control", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: pObjnam, speed: pSpeed, on: pOn })
+                });
+              }
+              if (pName && act === "edit") {
+                await api("/api/intellicenter/device/edit", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: pObjnam, name: pName })
+                });
+              }
+              toast("Pump updated", "good");
+            }
+            await loadIntelliCenter();
+          } else if (cat === "lights") {
+            var lObjnam = (targetSelect && targetSelect.value) || "C0012";
+            if (act === "add") {
+              var lName = ($("icMgrLightName") && $("icMgrLightName").value.trim()) || "Pool Light";
+              var lType = ($("icMgrLightType") && $("icMgrLightType").value) || "INTELLI";
+              var lEffect = ($("icMgrLightEffect") && $("icMgrLightEffect").value) || "BLUER";
+              await api("/api/intellicenter/device/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objtype: "CIRCUIT", name: lName, subtype: lType, params: { ACT: lEffect, USE: lEffect } })
+              });
+              toast("Light added: " + lName, "good");
+            } else if (act === "delete") {
+              await api("/api/intellicenter/device/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objnam: lObjnam })
+              });
+              toast("Light removed", "good");
+            } else {
+              var lName = $("icMgrLightName") ? $("icMgrLightName").value.trim() : null;
+              var lEffect = $("icMgrLightEffect") ? $("icMgrLightEffect").value : null;
+              var lOn = $("icMgrLightPower") ? $("icMgrLightPower").checked : null;
+
+              await api("/api/intellicenter/device/control", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objnam: lObjnam, on: lOn, effect: lEffect })
+              });
+              if (lName && act === "edit") {
+                await api("/api/intellicenter/device/edit", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: lObjnam, name: lName })
+                });
+              }
+              toast("Light updated", "good");
+            }
+            await loadIntelliCenter();
+          } else if (cat === "relays") {
+            var rObjnam = (targetSelect && targetSelect.value) || "C0014";
+            if (act === "add") {
+              var rName = ($("icMgrRelayName") && $("icMgrRelayName").value.trim()) || "Aux Relay";
+              var rSub = ($("icMgrRelaySub") && $("icMgrRelaySub").value) || "GENERIC";
+              await api("/api/intellicenter/device/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objtype: "CIRCUIT", name: rName, subtype: rSub })
+              });
+              toast("Aux relay added: " + rName, "good");
+            } else if (act === "delete") {
+              await api("/api/intellicenter/device/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objnam: rObjnam })
+              });
+              toast("Aux relay removed", "good");
+            } else {
+              var rName = $("icMgrRelayName") ? $("icMgrRelayName").value.trim() : null;
+              var rSub = $("icMgrRelaySub") ? $("icMgrRelaySub").value : null;
+              var rOn = $("icMgrRelayPower") ? $("icMgrRelayPower").checked : null;
+
+              if (rOn !== null) {
+                await api("/api/intellicenter/device/control", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: rObjnam, on: rOn })
+                });
+              }
+              if (rName || rSub) {
+                await api("/api/intellicenter/device/edit", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: rObjnam, name: rName, subtype: rSub })
+                });
+              }
+              toast("Aux relay updated", "good");
+            }
+            await loadIntelliCenter();
+          } else {
+            var dObjnam = (targetSelect && targetSelect.value) || "";
+            if (act === "add") {
+              var dName = ($("icMgrDevName") && $("icMgrDevName").value.trim()) || "New Device";
+              var dType = ($("icMgrDevType") && $("icMgrDevType").value) || "CIRCUIT";
+              var dSub = ($("icMgrDevSubtype") && $("icMgrDevSubtype").value) || "GENERIC";
+              await api("/api/intellicenter/device/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objtype: dType, name: dName, subtype: dSub })
+              });
+              toast("Device added: " + dName, "good");
+            } else if (act === "delete") {
+              await api("/api/intellicenter/device/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ objnam: dObjnam })
+              });
+              toast("Device removed", "good");
+            } else {
+              var dName = $("icMgrDevName") ? $("icMgrDevName").value.trim() : null;
+              var dSub = $("icMgrDevSubtype") ? $("icMgrDevSubtype").value : null;
+              var dOn = $("icMgrDevPower") ? $("icMgrDevPower").checked : null;
+              if (dOn !== null) {
+                await api("/api/intellicenter/device/control", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: dObjnam, on: dOn })
+                });
+              }
+              if (dName || dSub) {
+                await api("/api/intellicenter/device/edit", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ objnam: dObjnam, name: dName, subtype: dSub })
+                });
+              }
+              toast("Device updated", "good");
+            }
+            await loadIntelliCenter();
+          }
+        } catch (err) {
+          toast("Operation failed: " + err.message, "error");
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = origText;
+          renderManagerForm();
+        }
+      });
+    }
+
+    renderManagerForm();
+    window.refreshIntelliCenterManager = renderManagerForm;
+  }
+
   function bind() {
     buildFeatureCards();
+    initIntelliCenterManager();
+    initPoolLogicVisualization();
 
     document.querySelectorAll(".tab").forEach(function (tab) {
       tab.addEventListener("click", function () {

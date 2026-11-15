@@ -2062,3 +2062,57 @@ select option { background: #09202c; color: var(--text); }
     white-space: nowrap !important;
     transition: 0.15s !important;
 }
+
+/* Pool Logic Visualization Styles */
+.logic-node {
+  background: rgba(15, 30, 45, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 8px 10px;
+  transition: all 0.2s ease;
+}
+.logic-node-title {
+  font-size: 0.72rem;
+  color: #8ab;
+  margin-bottom: 2px;
+}
+.logic-node-val {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e0f0f5;
+}
+.logic-gate {
+  background: rgba(15, 30, 45, 0.8);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  transition: all 0.2s ease;
+}
+.logic-gate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.logic-gate-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--cyan);
+}
+.logic-gate-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--cyan);
+}
+.logic-gate-desc {
+  font-size: 0.72rem;
+  color: #cbd5e1;
+  line-height: 1.4;
+}
+.logic-scenario-btn {
+  font-size: 0.75rem;
+  padding: 5px 10px;
+}

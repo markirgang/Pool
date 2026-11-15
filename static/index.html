@@ -34,6 +34,7 @@
         <button class="tab active" data-tab="control">Control</button>
         <button class="tab" data-tab="intellicenter">IntelliCenter</button>
         <button class="tab" data-tab="panel">3D Panel</button>
+        <button class="tab" data-tab="logic">🧠 Logic</button>
         <button class="tab" data-tab="schedule">Schedule</button>
         <button class="tab" data-tab="voice">Voice</button>
         <button class="tab" data-tab="alexa">Alexa</button>
@@ -547,7 +548,7 @@
               <p class="muted">Live valves, circuits, relays, pumps, lights, and water features on the local IntelliCenter. Turn devices on/off, change speeds and effects, edit or add equipment, and map detected devices to the 3D pool animation.</p>
             </div>
             <div class="head-actions">
-              <button class="btn small" id="icScanAdjustBtn" style="background:linear-gradient(135deg, rgba(0, 240, 255, 0.25), rgba(16, 185, 129, 0.25)); border:1px solid var(--cyan); color:#e8f7fb; font-weight:700;" title="Scan IntelliCenter for valves, pumps, circuits, aux relays and make required adjustments">🔍 Scan &amp; Adjust Hardware</button>
+              <button class="btn small" id="icScanAdjustBtn" style="background:linear-gradient(135deg, rgba(0, 240, 255, 0.25), rgba(16, 185, 129, 0.25)); border:1px solid var(--cyan); color:#e8f7fb; font-weight:700;" title="Scan IntelliCenter for valves, pumps, circuits, aux relays and make required adjustments">🔍 Scan IntelliCenter for Hardware</button>
               <button class="btn small ghost" id="icOpenHostBtn" title="Open the Pentair IntelliCenter host web page in a browser">🌐 Open Host Page</button>
               <button class="btn small" id="icRefreshBtn">Refresh Panel</button>
               <button class="btn primary small" id="icOpenAddModalBtn">+ Add Device</button>
@@ -598,6 +599,69 @@
               </ul>
             </div>
           </div>
+        </section>
+
+        <!-- HARDWARE & SCHEDULE CONTROL CENTER WORKBENCH -->
+        <section class="card ic-management-workbench" id="icManagementWorkbench" style="margin-bottom:14px; border:1px solid rgba(0, 240, 255, 0.35); background:linear-gradient(135deg, rgba(8, 26, 42, 0.95), rgba(4, 15, 26, 0.95)); border-radius:12px; padding:18px;">
+          <div class="card-head" style="margin-bottom:12px;">
+            <div>
+              <h3 style="margin:0 0 4px 0; color:var(--cyan); font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+                <span>🛠️</span> Hardware, Valves, Relays, Pumps, IntelliChlor &amp; Schedules Control Center
+              </h3>
+              <p class="muted" style="margin:0; font-size:0.78rem;">
+                Select category and action to add, delete, or edit valves, auxiliary relays, variable-speed pumps, lights, IntelliChlor salt system, and filtration schedules.
+              </p>
+            </div>
+            <span class="chip live" style="font-size:0.7rem; background:rgba(0,240,255,0.15); color:var(--cyan); border:1px solid rgba(0,240,255,0.3);">INTERACTIVE CONTROLS</span>
+          </div>
+
+          <!-- 3-Dropdown Setup Row -->
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-bottom:12px; padding:12px; background:rgba(0,0,0,0.3); border-radius:8px; border:1px solid rgba(255,255,255,0.08);">
+            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#a0c0d0; font-weight:700;">
+              1. Hardware Category
+              <select id="icMgrCategory" class="select" style="padding:7px 10px; font-size:0.8rem; background:var(--input-bg, #0d1e2b); color:#e0f0f5; border:1px solid var(--line);">
+                <option value="valves">🔧 Motorized Valves (Intake/Return/Solar)</option>
+                <option value="relays">🎛️ Aux Relays &amp; Auxiliary Circuits</option>
+                <option value="pumps">⚡ Variable-Speed Pumps &amp; Speeds</option>
+                <option value="lights">💡 Pool, Spa &amp; Landscape Lights</option>
+                <option value="chlorinator">🧪 IntelliChlor Salt Chlorinator (SCG)</option>
+                <option value="schedules">📅 Filtration &amp; Feature Schedules</option>
+                <option value="devices">🔌 Custom Hardware Devices</option>
+              </select>
+            </label>
+
+            <label style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#a0c0d0; font-weight:700;">
+              2. Action
+              <select id="icMgrAction" class="select" style="padding:7px 10px; font-size:0.8rem; background:var(--input-bg, #0d1e2b); color:#e0f0f5; border:1px solid var(--line);">
+                <option value="add">➕ Add New to IntelliCenter</option>
+                <option value="edit">✏️ Edit Existing Item</option>
+                <option value="delete">🗑️ Delete Equipment / Schedule</option>
+                <option value="control">⚡ Quick Adjust / Control State</option>
+              </select>
+            </label>
+
+            <label id="icMgrTargetLabel" style="display:flex; flex-direction:column; gap:4px; font-size:0.75rem; color:#a0c0d0; font-weight:700;">
+              3. Target Device / Item
+              <select id="icMgrTargetSelect" class="select" style="padding:7px 10px; font-size:0.8rem; background:var(--input-bg, #0d1e2b); color:#e0f0f5; border:1px solid var(--line);">
+                <!-- Populated dynamically based on category & action -->
+              </select>
+            </label>
+          </div>
+
+          <!-- Dynamic Form Container -->
+          <div id="icMgrFormContainer" style="background:rgba(0,0,0,0.4); border:1px solid rgba(0, 240, 255, 0.25); border-radius:8px; padding:14px; margin-bottom:12px;">
+            <!-- Populated dynamically by app.js based on category & action -->
+          </div>
+
+          <!-- Status & Action Buttons -->
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div id="icMgrStatusText" style="font-size:0.78rem; color:#7df0ef;">Ready to manage IntelliCenter hardware and schedules.</div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn small" id="icMgrResetBtn" style="background:transparent; border:1px solid rgba(255,255,255,0.2); color:#cbd5e1;">Reset</button>
+              <button class="btn primary small" id="icMgrSubmitBtn" style="font-weight:700; padding:6px 18px;">💾 Apply to IntelliCenter</button>
+            </div>
+          </div>
+        </section>
         </section>
 
         <!-- Category Filters & Search -->
@@ -800,6 +864,216 @@
         </section>
       </div>
 
+      <!-- POOL LOGIC VISUALIZATION & SIMULATION TAB -->
+      <div class="view" id="view-logic">
+        <!-- Hero Header -->
+        <section class="card hero-card" style="border:1px solid rgba(0,240,255,0.35); background:linear-gradient(135deg, rgba(8,26,42,0.95), rgba(4,15,26,0.95)); margin-bottom:14px;">
+          <div class="card-head">
+            <div>
+              <h2 style="margin:0 0 6px 0; color:var(--cyan); display:flex; align-items:center; gap:10px;">
+                <span>🧠</span> Pool Automation Logic &amp; Simulation Engine
+              </h2>
+              <p class="muted" style="margin:0; font-size:0.8rem;">
+                Live logical signal flow, state machine transitions, safety interlock gates, and scenario simulation sandbox for the Pentair IntelliCenter dual-body pool/spa system.
+              </p>
+            </div>
+            <div class="head-actions" style="display:flex; align-items:center; gap:8px;">
+              <span class="chip live" id="logicModeBadge">POOL MODE ACTIVE</span>
+              <span class="chip" id="logicInterlockBadge" style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">INTERLOCKS SATISFIED</span>
+            </div>
+          </div>
+
+          <!-- Quick Metrics Bar -->
+          <div class="ic-status-bar" style="margin-top:12px;">
+            <div class="ic-status-item">
+              <span class="stat-label">Hydraulic Mode</span>
+              <span class="stat-value" id="logicStatMode" style="color:var(--cyan);">POOL</span>
+            </div>
+            <div class="ic-status-item">
+              <span class="stat-label">Main Pump Logic</span>
+              <span class="stat-value" id="logicStatMainPump">2200 RPM (RUNNING)</span>
+            </div>
+            <div class="ic-status-item">
+              <span class="stat-label">Features Pump</span>
+              <span class="stat-value" id="logicStatFeatPump">OFF (IDLE)</span>
+            </div>
+            <div class="ic-status-item">
+              <span class="stat-label">Heater Flow Switch</span>
+              <span class="stat-value" id="logicStatHeaterFlow" style="color:#10b981;">CLOSED (SAFE)</span>
+            </div>
+            <div class="ic-status-item">
+              <span class="stat-label">Spa Blower Interlock</span>
+              <span class="stat-value" id="logicStatBlowerLock" style="color:#10b981;">LOCKED (POOL)</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Interactive Scenario Testing Toolbar -->
+        <section class="card" style="margin-bottom:14px; border:1px solid rgba(255,255,255,0.1); background:rgba(7,24,35,0.85);">
+          <div class="card-head" style="margin-bottom:8px;">
+            <div>
+              <h3 style="margin:0 0 4px 0; color:#e0f0f5; font-size:0.95rem; display:flex; align-items:center; gap:8px;">
+                <span>🧪</span> Interactive Scenario Simulation Sandbox
+              </h3>
+              <p class="muted" style="margin:0; font-size:0.75rem;">
+                Click any scenario button to test state machine transitions and safety interlocks:
+              </p>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn small primary logic-scenario-btn" data-scenario="pool_day">🏊 Daytime Filtration (2200 RPM)</button>
+            <button class="btn small logic-scenario-btn" data-scenario="spa_session" style="background:linear-gradient(135deg, #f59e0b, #ef4444); color:#000; font-weight:700;">♨️ Spa Hydrotherapy (102°F + Blower)</button>
+            <button class="btn small logic-scenario-btn" data-scenario="water_show" style="background:linear-gradient(135deg, #8b5cf6, #3b82f6); color:#fff; font-weight:600;">🌊 Water &amp; Light Show (2800 RPM)</button>
+            <button class="btn small logic-scenario-btn" data-scenario="freeze_safety" style="background:rgba(0,240,255,0.15); border:1px solid var(--cyan); color:var(--cyan);">❄️ Freeze Protection (35°F Safe Cycle)</button>
+            <button class="btn small danger logic-scenario-btn" data-scenario="all_off">🛑 Emergency All-Off Trip</button>
+            <button class="btn small ghost logic-scenario-btn" data-scenario="realign">🔄 Re-Align to Live Panel</button>
+          </div>
+        </section>
+
+        <!-- Visual Logic Flow Diagram (3-Column Interactive Pipeline) -->
+        <section class="card" style="margin-bottom:14px; border:1px solid rgba(0,240,255,0.3); background:rgba(6,20,32,0.9);">
+          <div class="card-head" style="margin-bottom:12px;">
+            <div>
+              <h3 style="margin:0 0 4px 0; color:var(--cyan); font-size:1.05rem; display:flex; align-items:center; gap:8px;">
+                <span>📊</span> Real-Time Logic Flow &amp; Decision Pipeline
+              </h3>
+              <p class="muted" style="margin:0; font-size:0.75rem;">
+                Follow the live signals from left to right: Inputs &rarr; Logic Gates &amp; Interlocks &rarr; Physical Actuators.
+              </p>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; margin-bottom:12px;">
+            <!-- Column 1: Inputs & Sensors -->
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px;">
+              <div style="font-size:0.8rem; font-weight:700; color:#38bdf8; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px;">
+                <span>1. SENSORS &amp; INPUTS</span>
+                <span class="chip" style="font-size:0.65rem;">TELEMETRY</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <div class="logic-node" id="nodeSensorPoolTemp">
+                  <div class="logic-node-title">Pool Water Temp</div>
+                  <div class="logic-node-val" id="valLogicPoolTemp">84°F</div>
+                </div>
+                <div class="logic-node" id="nodeSensorSpaTemp">
+                  <div class="logic-node-title">Spa Water Temp</div>
+                  <div class="logic-node-val" id="valLogicSpaTemp">102°F</div>
+                </div>
+                <div class="logic-node" id="nodeSensorFlow">
+                  <div class="logic-node-title">Water Flow Switch</div>
+                  <div class="logic-node-val" id="valLogicFlow" style="color:#10b981;">FLOW OK (>=1500 RPM)</div>
+                </div>
+                <div class="logic-node" id="nodeSensorSalt">
+                  <div class="logic-node-title">IntelliChlor Salinity</div>
+                  <div class="logic-node-val" id="valLogicSalt">3200 PPM (OPTIMAL)</div>
+                </div>
+                <div class="logic-node" id="nodeSensorSchedule">
+                  <div class="logic-node-title">Scheduler Clock Window</div>
+                  <div class="logic-node-val" id="valLogicSchedule">Active: Main VSR daytime</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Column 2: Logic Gates & Interlocks -->
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(0,240,255,0.2); border-radius:10px; padding:14px;">
+              <div style="font-size:0.8rem; font-weight:700; color:var(--cyan); margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px;">
+                <span>2. LOGIC GATES &amp; INTERLOCKS</span>
+                <span class="chip" style="font-size:0.65rem; background:rgba(0,240,255,0.15); color:var(--cyan);">EVALUATED</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <div class="logic-gate" id="gateMode">
+                  <div class="logic-gate-header">
+                    <span class="logic-gate-name">[GATE 1] Hydraulic Mode Switch</span>
+                    <span class="logic-gate-pill" id="pillGateMode">POOL 80/20</span>
+                  </div>
+                  <div class="logic-gate-desc" id="descGateMode">Suction &amp; Return 3-way valves set for continuous pool skimming with spa spillway cascade.</div>
+                </div>
+                <div class="logic-gate" id="gateHeater">
+                  <div class="logic-gate-header">
+                    <span class="logic-gate-name">[GATE 2] Heater Flow Interlock</span>
+                    <span class="logic-gate-pill" id="pillGateHeater">SAFE (READY)</span>
+                  </div>
+                  <div class="logic-gate-desc" id="descGateHeater">Fireman switch permits heater fire only when Main Pump RPM >= 1500 and flow switch is closed.</div>
+                </div>
+                <div class="logic-gate" id="gateBlower">
+                  <div class="logic-gate-header">
+                    <span class="logic-gate-name">[GATE 3] Spa Blower Lockout</span>
+                    <span class="logic-gate-pill" id="pillGateBlower">LOCKED</span>
+                  </div>
+                  <div class="logic-gate-desc" id="descGateBlower">Blower relay locked out while in POOL mode to prevent air injection into the main pool basin.</div>
+                </div>
+                <div class="logic-gate" id="gateFeatures">
+                  <div class="logic-gate-header">
+                    <span class="logic-gate-name">[GATE 4] Features Pump Interlock</span>
+                    <span class="logic-gate-pill" id="pillGateFeatures">IDLE (0 ON)</span>
+                  </div>
+                  <div class="logic-gate-desc" id="descGateFeatures">Features pump held at 0 RPM to prevent dry-running until at least 1 deck jet or firebasket opens.</div>
+                </div>
+                <div class="logic-gate" id="gateFreeze">
+                  <div class="logic-gate-header">
+                    <span class="logic-gate-name">[GATE 5] Freeze Protection</span>
+                    <span class="logic-gate-pill" id="pillGateFreeze">NORMAL (78°F)</span>
+                  </div>
+                  <div class="logic-gate-desc" id="descGateFreeze">If ambient temperature drops &lt;= 36°F, anti-freeze circulation overrides schedule automatically.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Column 3: Actuators & Outputs -->
+            <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px;">
+              <div style="font-size:0.8rem; font-weight:700; color:#10b981; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px;">
+                <span>3. ACTUATORS &amp; OUTPUTS</span>
+                <span class="chip" style="font-size:0.65rem; background:rgba(16,185,129,0.15); color:#10b981;">COMMANDS</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <div class="logic-node" id="nodeActuatorSuction">
+                  <div class="logic-node-title">Suction Valve (V1001)</div>
+                  <div class="logic-node-val" id="valActuatorSuction">80% Pool / 20% Spa</div>
+                </div>
+                <div class="logic-node" id="nodeActuatorReturn">
+                  <div class="logic-node-title">Return Valve (V1002)</div>
+                  <div class="logic-node-val" id="valActuatorReturn">80% Spa (Spillway) / 20% Pool</div>
+                </div>
+                <div class="logic-node" id="nodeActuatorMainPump">
+                  <div class="logic-node-title">Main VSR Pump (P1001)</div>
+                  <div class="logic-node-val" id="valActuatorMainPump" style="color:#10b981;">2200 RPM &bull; 45 GPM &bull; 480W</div>
+                </div>
+                <div class="logic-node" id="nodeActuatorFeatPump">
+                  <div class="logic-node-title">Features VSR Pump (P1002)</div>
+                  <div class="logic-node-val" id="valActuatorFeatPump">0 RPM (OFF)</div>
+                </div>
+                <div class="logic-node" id="nodeActuatorHeater">
+                  <div class="logic-node-title">Gas Pool Heater (H1001)</div>
+                  <div class="logic-node-val" id="valActuatorHeater">OFF (Setpoint: 84°F)</div>
+                </div>
+                <div class="logic-node" id="nodeActuatorChlor">
+                  <div class="logic-node-title">IntelliChlor SCG (CH101)</div>
+                  <div class="logic-node-val" id="valActuatorChlor" style="color:var(--cyan);">Generating @ 60%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Live Rule Matrix & Event Logger -->
+        <section class="card" style="border:1px solid rgba(255,255,255,0.08); background:rgba(7,24,35,0.85);">
+          <div class="card-head" style="margin-bottom:10px;">
+            <div>
+              <h3 style="margin:0 0 4px 0; color:#e0f0f5; font-size:0.95rem; display:flex; align-items:center; gap:8px;">
+                <span>📜</span> Live Rule Evaluation &amp; Event Audit Log
+              </h3>
+              <p class="muted" style="margin:0; font-size:0.75rem;">
+                Historical record of state machine decisions and safety interlock transitions:
+              </p>
+            </div>
+            <button class="btn small" id="clearLogicLogBtn" style="padding:4px 10px; font-size:0.72rem;">Clear Log</button>
+          </div>
+          <div id="logicLogBox" style="background:#040c14; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:10px; font-family:monospace; font-size:0.75rem; color:#8ab; height:140px; overflow-y:auto; line-height:1.5;">
+            <!-- Populated dynamically by app.js -->
+          </div>
+        </section>
+      </div>
+
       <!-- ALEXA SKILLS TAB -->
       <div class="view" id="view-alexa">
         <section class="card">
@@ -891,6 +1165,7 @@
               <a href="#man-sec8" class="toc-chip">8. Raspberry Pi Setup</a>
               <a href="#man-sec9" class="toc-chip">9. Protocol &amp; REST APIs</a>
               <a href="#man-sec10" class="toc-chip">10. Diagnostic Matrix</a>
+              <a href="#man-sec11" class="toc-chip">11. Logic Visualization &amp; Simulation</a>
             </div>
           </div>
         </section>
@@ -1834,6 +2109,48 @@ cloudflared tunnel route dns shobots pool.shobots.party</code></pre>
 
             <div class="manual-callout good" style="margin-top: 16px;">
               <strong>System Verification &amp; Self-Check:</strong> You can verify operational status at any time by running <code>curl -s http://localhost:2490/api/status | jq .</code> on the Raspberry Pi terminal.
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 11: Pool Automation Logic Visualization & Simulation Engine -->
+        <section class="card manual-card" id="man-sec11">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">11</span>
+            <div>
+              <h3>Pool Automation Logic Visualization &amp; Simulation Engine</h3>
+              <p class="muted">Real-time logical signal flow, safety interlock gates, state machines, and scenario simulation.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>The <strong>🧠 Logic</strong> tab provides a live, interactive visualization of the decision engine that coordinates the Pentair IntelliCenter dual-body pool/spa system. Rather than treating pool control as isolated switches, the logic engine evaluates five core gates continuously:</p>
+
+            <div class="manual-grid-2">
+              <div class="manual-box">
+                <h4>Core Logic Gates &amp; Safety Interlocks</h4>
+                <ul>
+                  <li><strong>[GATE 1] Hydraulic Mode Switch:</strong> Coordinates 3-way motorized actuators. In <code>POOL</code> mode, intake draws 80% pool / 20% spa, returning 80% to spa for continuous waterfall spillover cascade. In <code>SPA</code> mode, valves isolate 100% to the spa basin to retain heat.</li>
+                  <li><strong>[GATE 2] Heater Flow Switch Interlock:</strong> The gas heater's 24VAC fireman's switch is only permitted to close when the Main Circulation Pump is confirmed running at &gt;= 1500 RPM with water pressure switch closed. If pump speed drops below 1500 RPM, the heater is locked out immediately to prevent thermal expansion damage.</li>
+                  <li><strong>[GATE 3] Spa Blower Lockout:</strong> Air blower relays are strictly locked out while in <code>POOL</code> mode to prevent air injection into the main swimming basin.</li>
+                  <li><strong>[GATE 4] Features Pump Interlock:</strong> The secondary features VSR pump is held at 0 RPM to prevent dry-running until at least one deck jet or firebasket valve opens.</li>
+                  <li><strong>[GATE 5] Freeze Protection Override:</strong> If ambient air temperature drops &lt;= 36&deg;F, anti-freeze circulation overrides schedule timers automatically, cycling all valves and running pumps at 2400 RPM.</li>
+                </ul>
+              </div>
+              <div class="manual-box">
+                <h4>Interactive Scenario Simulation Sandbox</h4>
+                <p>Test state machine reactions and safety interlocks by clicking the scenario buttons in the Logic tab:</p>
+                <ul>
+                  <li><strong>Daytime Filtration:</strong> Sets Pool mode, starts Main Pump at 2200 RPM, and confirms spillway cascade.</li>
+                  <li><strong>Spa Hydrotherapy Session:</strong> Isolates 3-way valves to the spa, fires heater to 102&deg;F, and engages the air blower.</li>
+                  <li><strong>Water &amp; Light Show:</strong> Engages features pump at 2800 RPM, activates laminar deck jets, firebasket fountains, and sets underwater lights to Party mode.</li>
+                  <li><strong>Freeze Protection Safety:</strong> Injects a low-temperature trigger to verify anti-freeze pump circulation.</li>
+                  <li><strong>Emergency All-Off:</strong> Shuts down heater ignition, closes gas valves, and stops all pumps.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="manual-callout good" style="margin-top: 14px;">
+              <strong>Hardware &amp; Schedule Manager Toolbar:</strong> The <strong>IntelliCenter</strong> tab features the <em>Hardware, Valves, Relays, Pumps, IntelliChlor &amp; Schedules Control Center</em> with dropdown boxes to add, edit, or delete equipment, as well as the <strong>🔍 Scan IntelliCenter for Hardware</strong> button to discover and auto-adjust all connected equipment on the fly.
             </div>
           </div>
         </section>
