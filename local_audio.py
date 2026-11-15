@@ -251,7 +251,7 @@ class LocalAudio:
             self._active_input = device
             LOG.info("Local microphone open on %s", device)
             threshold = int(cfg.get("speech_rms", 450))
-            silence_needed = int(cfg.get("silence_ms", 900)) / 1000.0
+            silence_needed = int(cfg.get("silence_ms", 2000)) / 1000.0
             min_speech = int(cfg.get("min_speech_ms", 350)) / 1000.0
             max_record = int(cfg.get("max_record_seconds", 8))
             pre_roll: list[bytes] = []

@@ -117,7 +117,7 @@
       "input_device": "default",
       "output_device": "default",
       "speech_rms": 650,
-      "silence_ms": 900,
+      "silence_ms": 2000,
       "min_speech_ms": 350,
       "max_record_seconds": 8
     },
