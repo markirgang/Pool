@@ -330,7 +330,13 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
     # GET
     # ------------------------------------------------------------------
     def do_HEAD(self):
-        if self.route_path().startswith("/api/"):
+        path = self.route_path()
+        if path in ("/api/camera/snapshot", "/api/camera/frame"):
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+        elif path.startswith("/api/"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -414,7 +420,7 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 "cameras": LOCAL_CAMERA.devices() if LOCAL_CAMERA else [],
                 "status": LOCAL_CAMERA.status() if LOCAL_CAMERA else None,
             })
-        elif path == "/api/camera/snapshot":
+        elif path in ("/api/camera/snapshot", "/api/camera/frame"):
             self.send_image(LOCAL_CAMERA.capture() if LOCAL_CAMERA else None)
         elif path == "/api/alexa":
             self.send_json(alexa_devices_preview(CONTROLLER))
