@@ -93,6 +93,21 @@ class TestIntelliCenterHost(unittest.TestCase):
         self.assertEqual(action["action"], "open_host_page")
         self.assertEqual(action["payload"], {"launch": True})
 
+    def test_controller_scan_and_adjust(self):
+        bridge = IntelliCenterBridge(self.config)
+        controller = PoolController(self.config, bridge)
+        res = controller.scan_and_adjust(reason="test_scan", force=True)
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["scanned"])
+        self.assertIn("counts", res)
+        self.assertGreaterEqual(res["counts"]["valves"], 1)
+        self.assertGreaterEqual(res["counts"]["pumps"], 1)
+        self.assertGreaterEqual(res["counts"]["circuits"], 1)
+        self.assertGreaterEqual(len(res["adjustments"]), 1)
+        status = controller.scan_status()
+        self.assertTrue(status["scanned"])
+        self.assertEqual(status["counts"]["valves"], res["counts"]["valves"])
+
 
 class TestServerEndpoints(unittest.TestCase):
     @classmethod
@@ -163,6 +178,31 @@ class TestServerEndpoints(unittest.TestCase):
         except urllib.error.HTTPError as err:
             self.assertEqual(err.code, 307)
             self.assertEqual(err.headers.get("Location"), "http://192.168.1.88")
+
+    def test_get_intellicenter_scan_endpoint(self):
+        import urllib.request
+        url = f"http://127.0.0.1:{self.port}/api/intellicenter/scan"
+        with urllib.request.urlopen(url) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(data.get("ok"))
+            self.assertIn("counts", data)
+
+    def test_post_intellicenter_scan_endpoint(self):
+        import urllib.request
+        url = f"http://127.0.0.1:{self.port}/api/intellicenter/scan"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"force": True}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(data.get("ok"))
+            self.assertTrue(data.get("scanned"))
+            self.assertIn("adjustments", data)
 
 
 if __name__ == "__main__":

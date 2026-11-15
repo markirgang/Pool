@@ -1866,6 +1866,38 @@
       $("icActiveCount").textContent = activeCount;
     }
 
+    // Render scan report banner if present
+    var scan = (icData && icData.last_scan) || (lastState && lastState.last_scan);
+    if (scan && scan.scanned && $("icScanCard")) {
+      $("icScanCard").style.display = "block";
+      if ($("icScanSummaryText")) $("icScanSummaryText").textContent = scan.summary || "Scan complete";
+      if ($("icScanTimestamp")) {
+        var dtStr = scan.scanned_at ? new Date(scan.scanned_at * 1000).toLocaleTimeString() : "--";
+        $("icScanTimestamp").textContent = "Scanned at " + dtStr + " (" + (scan.mode || "mode") + ")";
+      }
+      if ($("icScanBadges")) {
+        var sc = scan.counts || {};
+        var badgesHtml = '';
+        badgesHtml += '<span class="chip" style="font-size:0.7rem; padding:2px 8px; background:rgba(0,240,255,0.15); color:var(--cyan); border:1px solid rgba(0,240,255,0.3);">🔧 ' + (sc.valves || 0) + ' Valves</span>';
+        badgesHtml += '<span class="chip" style="font-size:0.7rem; padding:2px 8px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);">⚡ ' + (sc.pumps || 0) + ' Pumps</span>';
+        badgesHtml += '<span class="chip" style="font-size:0.7rem; padding:2px 8px; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.3);">🔌 ' + (sc.circuits || 0) + ' Circuits</span>';
+        badgesHtml += '<span class="chip" style="font-size:0.7rem; padding:2px 8px; background:rgba(168,85,247,0.15); color:#a855f7; border:1px solid rgba(168,85,247,0.3);">🎛️ ' + (sc.aux_relays || 0) + ' Aux Relays</span>';
+        badgesHtml += '<span class="chip" style="font-size:0.7rem; padding:2px 8px; background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);">🔥 ' + (sc.heaters || 0) + ' Heaters</span>';
+        badgesHtml += '<span class="chip" style="font-size:0.7rem; padding:2px 8px; background:rgba(236,72,153,0.15); color:#ec4899; border:1px solid rgba(236,72,153,0.3);">🧪 ' + (sc.chemistry || 0) + ' Chem</span>';
+        $("icScanBadges").innerHTML = badgesHtml;
+      }
+      if ($("icScanAdjustmentsList")) {
+        var adjList = scan.adjustments || [];
+        if (adjList.length === 0) {
+          $("icScanAdjustmentsList").innerHTML = "<li>Hardware aligned with current state & schedule. No adjustments needed.</li>";
+        } else {
+          $("icScanAdjustmentsList").innerHTML = adjList.map(function (a) {
+            return "<li><strong>" + (a.target || a.category || "Adjustment") + ":</strong> " + (a.action || "") + " &mdash; <em>" + (a.result || "applied") + "</em></li>";
+          }).join("");
+        }
+      }
+    }
+
     // 2. Counts in category filter pills
     var counts = { all: objects.length, valves: 0, circuits: 0, relays: 0, pumps: 0, lights: 0, jets: 0, heaters: 0 };
     objects.forEach(function (o) {
@@ -2530,6 +2562,25 @@
 
     if ($("icOpenHostBtn")) {
       $("icOpenHostBtn").addEventListener("click", openIntelliCenterHost);
+    }
+
+    if ($("icScanAdjustBtn")) {
+      $("icScanAdjustBtn").addEventListener("click", async function () {
+        $("icScanAdjustBtn").textContent = "⏳ Scanning...";
+        try {
+          var res = await api("/api/intellicenter/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ force: true })
+          });
+          toast("IntelliCenter scanned: " + (res.summary || "Hardware adjusted"), "good");
+          await loadIntelliCenter();
+        } catch (err) {
+          toast("Scan failed: " + err.message, "error");
+        } finally {
+          $("icScanAdjustBtn").textContent = "🔍 Scan & Adjust Hardware";
+        }
+      });
     }
 
     if ($("icRefreshBtn")) {

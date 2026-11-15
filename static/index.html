@@ -742,6 +742,7 @@ cd ~/projects/Pool && git pull origin main && sudo systemctl restart pool.servic
               <p class="muted">Live valves, circuits, relays, pumps, lights, and water features on the local IntelliCenter. Turn devices on/off, change speeds and effects, edit or add equipment, and map detected devices to the 3D pool animation.</p>
             </div>
             <div class="head-actions">
+              <button class="btn small" id="icScanAdjustBtn" style="background:linear-gradient(135deg, rgba(0, 240, 255, 0.25), rgba(16, 185, 129, 0.25)); border:1px solid var(--cyan); color:#e8f7fb; font-weight:700;" title="Scan IntelliCenter for valves, pumps, circuits, aux relays and make required adjustments">🔍 Scan &amp; Adjust Hardware</button>
               <button class="btn small ghost" id="icOpenHostBtn" title="Open the Pentair IntelliCenter host web page in a browser">🌐 Open Host Page</button>
               <button class="btn small" id="icRefreshBtn">Refresh Panel</button>
               <button class="btn primary small" id="icOpenAddModalBtn">+ Add Device</button>
@@ -767,6 +768,29 @@ cd ~/projects/Pool && git pull origin main && sudo systemctl restart pool.servic
             <div class="ic-status-item">
               <span class="stat-label">Active (ON)</span>
               <span class="stat-value" id="icActiveCount">--</span>
+            </div>
+          </div>
+
+          <!-- Live Hardware Scan & Adjustment Banner -->
+          <div class="ic-scan-card" id="icScanCard" style="display:none; margin-top:14px; background:rgba(0, 240, 255, 0.05); border:1px solid rgba(0, 240, 255, 0.3); border-radius:10px; padding:12px 16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:1rem;">🔍</span>
+                <strong style="color:var(--cyan); font-size:0.85rem;" id="icScanTitle">IntelliCenter Startup Scan &amp; Hardware Adjustment</strong>
+              </div>
+              <span style="font-size:0.75rem; color:var(--muted);" id="icScanTimestamp">--</span>
+            </div>
+            <div style="font-size:0.82rem; color:#d1eaf0; margin-bottom:8px; line-height:1.5;" id="icScanSummaryText">
+              Scanning valves, pumps, circuits, and aux relays...
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;" id="icScanBadges">
+              <!-- Populated by app.js -->
+            </div>
+            <div style="border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;">
+              <div style="font-size:0.75rem; font-weight:700; color:var(--gold); margin-bottom:4px;">Adjustments Applied:</div>
+              <ul style="margin:0; padding-left:18px; font-size:0.78rem; color:#cbd5e1; line-height:1.5;" id="icScanAdjustmentsList">
+                <!-- Populated by app.js -->
+              </ul>
             </div>
           </div>
         </section>

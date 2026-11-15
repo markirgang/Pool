@@ -54,6 +54,7 @@ class PoolController:
         self.lock = threading.RLock()
         self._objtypes: dict[str, str] = {}
         self._startup_applied = False
+        self._last_scan: dict[str, Any] = {}
         self._last_schedule_active: bool | None = None
         self._last_schedule_key: str | None = None
         self._last_message = ""
@@ -112,6 +113,11 @@ class PoolController:
         self._thread = threading.Thread(target=self._tick_loop, name="pool-schedule",
                                         daemon=True)
         self._thread.start()
+        # Scan IntelliCenter and apply required adjustments on server startup
+        try:
+            self.scan_and_adjust(reason="server_startup")
+        except Exception:
+            LOG.exception("Startup IntelliCenter scan failed")
 
     def stop(self) -> None:
         self._stop = True
@@ -127,11 +133,198 @@ class PoolController:
     def tick(self) -> None:
         if self.bridge.connected and not self._startup_applied:
             self._startup_applied = True
-            if self.config.get("intellicenter", {}).get("apply_pool_mode_on_start", True):
-                self.set_mode(self.config.get("defaults", {}).get("mode", "pool"),
-                              reason="startup")
+            try:
+                self.scan_and_adjust(reason="panel_connect_startup")
+            except Exception:
+                LOG.exception("Connected IntelliCenter scan failed")
         self._merge_panel_state()
         self._run_schedule()
+
+    def scan_status(self) -> dict[str, Any]:
+        with self.lock:
+            if not self._last_scan:
+                return {
+                    "ok": True,
+                    "scanned": False,
+                    "summary": "Startup scan pending",
+                    "counts": {},
+                    "discovered": {},
+                    "adjustments": [],
+                }
+            return copy.deepcopy(self._last_scan)
+
+    def scan_and_adjust(self, reason: str = "server_startup", force: bool = False) -> dict[str, Any]:
+        """Scan IntelliCenter for valves, pumps, circuits, aux relays, etc. and apply required adjustments."""
+        start_time = time.time()
+        LOG.info("Scanning IntelliCenter hardware & checking required adjustments (reason: %s)...", reason)
+
+        # 1. Remap and retrieve hardware inventory
+        self.bridge.remap()
+        inventory = self.bridge.inventory()
+        resolved = self.bridge.resolved()
+        connected = self.bridge.connected
+        panel_mode = self.bridge.mode
+
+        objects = inventory.get("objects", [])
+        circuits = inventory.get("circuits", [])
+        pumps = inventory.get("pumps", [])
+        pump_circuits = inventory.get("pump_circuits", [])
+        valves = inventory.get("valves", [])
+        heaters = inventory.get("heaters", [])
+        bodies = inventory.get("bodies", [])
+        chemistry = inventory.get("chemistry", [])
+
+        # Filter Aux Relays from circuits
+        aux_relays = [
+            c for c in circuits
+            if "AUX" in (c.get("subtype") or "").upper()
+            or "RELAY" in (c.get("subtype") or "").upper()
+            or "aux" in (c.get("name") or "").lower()
+            or "relay" in (c.get("name") or "").lower()
+        ]
+
+        adjustments: list[dict[str, Any]] = []
+
+        with self.lock:
+            # 2. Adjustments:
+            # A. Mode and Valve Adjustments
+            desired_mode = self.config.get("defaults", {}).get("mode", "pool")
+            should_apply_mode = bool(self.config.get("intellicenter", {}).get("apply_pool_mode_on_start", True)) or force
+            if should_apply_mode:
+                mode_res = self.set_mode(desired_mode, reason=f"{reason}_mode")
+                valves_info = self._valves_for_mode(desired_mode)
+                adjustments.append({
+                    "category": "valves",
+                    "target": "mode_valves",
+                    "action": f"Set {desired_mode.upper()} mode valves",
+                    "details": f"Drain Valve: {valves_info['drain']}, Return Valve: {valves_info['return']}",
+                    "result": mode_res.get("message", "applied"),
+                })
+
+            # B. Main Pump & Schedule Adjustments
+            now = self._now()
+            active_run = self._active_run(now)
+            schedule_enabled = bool(self.config.get("schedule", {}).get("enabled", True))
+
+            if schedule_enabled and active_run:
+                target_rpm = int(active_run.get("rpm", self._default_rpm))
+                pump_res = self.set_pump("main", on=True, rpm=target_rpm, reason=f"{reason}_schedule")
+                adjustments.append({
+                    "category": "pumps",
+                    "target": "main_pump",
+                    "action": f"Active schedule '{active_run['name']}': Main pump ON at {target_rpm} RPM",
+                    "result": pump_res.get("message", "applied"),
+                })
+            elif self.config.get("schedule", {}).get("apply_at_startup", False):
+                pump_res = self.set_pump("main", on=False, reason=f"{reason}_off_hours")
+                adjustments.append({
+                    "category": "pumps",
+                    "target": "main_pump",
+                    "action": "Schedule off-hours: Main pump idle/off",
+                    "result": pump_res.get("message", "applied"),
+                })
+            else:
+                if not self.state_data["pumps"]["main"]["on"]:
+                    pump_res = self.set_pump("main", on=True, rpm=self._default_rpm, reason=f"{reason}_default_rpm")
+                    adjustments.append({
+                        "category": "pumps",
+                        "target": "main_pump",
+                        "action": f"Main pump initialized at default {self._default_rpm} RPM",
+                        "result": pump_res.get("message", "applied"),
+                    })
+
+            # C. Water Features Pump Adjustment
+            jets_on = any(j.get("on") for j in self.state_data["deck_jets"].values())
+            baskets_on = any(b.get("on") for b in self.state_data["firebaskets"].values())
+            if not (jets_on or baskets_on):
+                feat_res = self.set_pump("features", on=False, reason=f"{reason}_features_off")
+                adjustments.append({
+                    "category": "pumps",
+                    "target": "features_pump",
+                    "action": "Features pump OFF (0 water features active)",
+                    "result": feat_res.get("message", "applied"),
+                })
+            else:
+                feat_res = self.set_pump("features", on=True, rpm=self._features_rpm, reason=f"{reason}_features_on")
+                adjustments.append({
+                    "category": "pumps",
+                    "target": "features_pump",
+                    "action": f"Features pump ON at {self._features_rpm} RPM",
+                    "result": feat_res.get("message", "applied"),
+                })
+
+            # D. Safety & Circuit Lockout Adjustments
+            if self.state_data["mode"] == "pool" and self.state_data["blower"].get("on"):
+                blow_res = self.set_blower(False)
+                adjustments.append({
+                    "category": "circuits",
+                    "target": "blower",
+                    "action": "Safety Interlock: Spa blower turned OFF while in pool mode",
+                    "result": blow_res.get("message", "applied"),
+                })
+
+            heater_active = self.state_data["heater"].get("on") or any(
+                b.get("heating") for b in self.state_data["bodies"].values()
+            )
+            if heater_active and (not self.state_data["pumps"]["main"]["on"] or self.state_data["pumps"]["main"]["rpm"] < 1500):
+                safe_rpm = max(2200, self._default_rpm)
+                heat_res = self.set_pump("main", on=True, rpm=safe_rpm, reason="heater_flow_safety")
+                adjustments.append({
+                    "category": "heaters",
+                    "target": "heater_flow_switch",
+                    "action": f"Safety Interlock: Main pump boosted to {safe_rpm} RPM for heater flow switch",
+                    "result": heat_res.get("message", "applied"),
+                })
+
+            # E. Setpoints & Chemistry Sync
+            self.state_data["bodies"]["pool"]["setpoint"] = self._pool_setpoint
+            self.state_data["bodies"]["spa"]["setpoint"] = 102
+            self.state_data["chemistry"]["salt"] = self._salt_ppm
+            adjustments.append({
+                "category": "setpoints",
+                "target": "setpoints",
+                "action": f"Synchronized pool setpoint {self._pool_setpoint}°F, spa setpoint 102°F, salt {self._salt_ppm} ppm",
+                "result": "synced",
+            })
+
+            self._merge_panel_state()
+
+        scan_record = {
+            "ok": True,
+            "scanned": True,
+            "reason": reason,
+            "connected": connected,
+            "mode": panel_mode,
+            "host": inventory.get("host", ""),
+            "scanned_at": time.time(),
+            "scan_duration_ms": round((time.time() - start_time) * 1000, 2),
+            "summary": f"Scanned {len(objects)} devices: {len(valves)} valves, {len(pumps)} pumps ({len(pump_circuits)} circuits), {len(circuits)} circuits ({len(aux_relays)} aux relays), {len(heaters)} heaters. Applied {len(adjustments)} adjustments.",
+            "counts": {
+                "valves": len(valves),
+                "pumps": len(pumps),
+                "pump_circuits": len(pump_circuits),
+                "circuits": len(circuits),
+                "aux_relays": len(aux_relays),
+                "heaters": len(heaters),
+                "bodies": len(bodies),
+                "chemistry": len(chemistry),
+                "total_objects": len(objects),
+            },
+            "discovered": {
+                "valves": [{"objnam": v.get("objnam"), "name": v.get("name"), "status": v.get("status")} for v in valves],
+                "pumps": [{"objnam": p.get("objnam"), "name": p.get("name"), "status": p.get("status"), "rpm": p.get("attrs", {}).get("RPM") or p.get("attrs", {}).get("SPEED")} for p in pumps],
+                "circuits": [{"objnam": c.get("objnam"), "name": c.get("name"), "status": c.get("status"), "subtype": c.get("subtype")} for c in circuits],
+                "aux_relays": [{"objnam": a.get("objnam"), "name": a.get("name"), "status": a.get("status")} for a in aux_relays],
+                "heaters": [{"objnam": h.get("objnam"), "name": h.get("name"), "status": h.get("status")} for h in heaters],
+            },
+            "adjustments": adjustments,
+        }
+
+        with self.lock:
+            self._last_scan = scan_record
+
+        LOG.info("IntelliCenter scan & adjustment complete: %s", scan_record["summary"])
+        return scan_record
 
     # ------------------------------------------------------------------
     # State snapshot
@@ -175,6 +368,7 @@ class PoolController:
             }
             data["last_message"] = self._last_message
             data["last_message_at"] = self._last_message_at
+            data["last_scan"] = self.scan_status()
             data["time"] = time.time()
             data["local_time"] = self._now().strftime("%Y-%m-%d %H:%M:%S")
             return data
@@ -278,6 +472,8 @@ class PoolController:
                 return self.open_host_page(
                     launch_browser=bool(payload.get("launch") or payload.get("browser"))
                 )
+            if action in ("ic_scan", "scan"):
+                return self.scan_and_adjust(reason="user_command", force=bool(payload.get("force", True)))
             if action == "refresh":
                 self._merge_panel_state()
                 return self._result(True, "State refreshed")
@@ -515,7 +711,7 @@ class PoolController:
     # Pumps
     # ------------------------------------------------------------------
     def set_pump(self, pump: str, on: bool | None = None,
-                 rpm: int | None = None) -> dict[str, Any]:
+                 rpm: int | None = None, reason: str = "") -> dict[str, Any]:
         pump = "features" if str(pump).lower() in ("features", "secondary", "feature") else "main"
         with self.lock:
             state = self.state_data["pumps"][pump]
@@ -530,7 +726,7 @@ class PoolController:
                 self._power(changes, target, state["on"])
             program = resolved.get("pump_programs", {}).get(pump)
             self._speed(changes, program, state["rpm"])
-        ok, msg = self._send(changes, "set_%s_pump" % pump)
+        ok, msg = self._send(changes, reason or ("set_%s_pump" % pump))
         return self._result(ok, "%s pump %s at %s RPM" % (
             pump.capitalize(), "on" if state["on"] else "off", state["rpm"]), msg)
 

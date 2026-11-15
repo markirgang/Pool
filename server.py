@@ -401,6 +401,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             self.send_json(result, status=200 if result.get("ok") else 404)
+        elif path in ("/api/intellicenter/scan", "/api/scan"):
+            self.send_json(CONTROLLER.scan_status())
         elif path == "/api/config":
             self.send_json(_public_config())
         elif path in ("/api/models", "/api/ai/models"):
@@ -490,6 +492,12 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
 
         if path == "/api/intellicenter/mapping":
             res = CONTROLLER.command("save_animation_mapping", data)
+            self.send_json(res)
+            return
+
+        if path in ("/api/intellicenter/scan", "/api/scan"):
+            force = bool(data.get("force", True))
+            res = CONTROLLER.scan_and_adjust(reason="user_request", force=force)
             self.send_json(res)
             return
 
