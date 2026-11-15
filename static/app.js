@@ -161,6 +161,17 @@
     renderViz();
     handleRemoteAssistant();
     renderVoiceBubble();
+
+    if (icData && $("view-intellicenter") && $("view-intellicenter").classList.contains("active")) {
+      var activeEl = document.activeElement;
+      var isTyping = activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "SELECT");
+      if (!isTyping) {
+        icData.inventory = state.inventory;
+        icData.resolved = state.resolved;
+        icData.connection = state.connection;
+        renderIntelliCenter();
+      }
+    }
   }
 
   function temp(value) {
@@ -1388,6 +1399,560 @@
     box.innerHTML = rows.join("");
   }
 
+  // ------------------------------------------------------------------
+  // IntelliCenter Equipment Management & Animation Mapping
+  // ------------------------------------------------------------------
+  var icData = null;
+  var icCurrentFilter = "all";
+  var icSearchQuery = "";
+
+  var ANIMATION_SLOTS = [
+    {
+      group: "Water Body Modes & Shells",
+      icon: "🌊",
+      items: [
+        { path: "modes.pool", label: "Pool Mode Circuit", hint: "Toggles Pool drain & return", type: "CIRCUIT" },
+        { path: "modes.spa", label: "Spa Mode Circuit", hint: "Toggles Spa drain & return", type: "CIRCUIT" },
+        { path: "bodies.pool", label: "Pool Water Body", hint: "Temperature & pool water basin", type: "BODY" },
+        { path: "bodies.spa", label: "Spa Water Body", hint: "Temperature & spa water basin", type: "BODY" }
+      ]
+    },
+    {
+      group: "Circulation & Feature Pumps",
+      icon: "⚙️",
+      items: [
+        { path: "pumps.main", label: "Main Circulation Pump", hint: "Pad pump model & filtration", type: "PUMP" },
+        { path: "pump_programs.main", label: "Main VSR Speed Program", hint: "Main pump RPM control", type: "PMPCIRC" },
+        { path: "pumps.features", label: "Features VSR Pump", hint: "Secondary pump for water features", type: "PUMP" },
+        { path: "pump_programs.features", label: "Features VSR Speed Program", hint: "Features pump RPM control", type: "PMPCIRC" }
+      ]
+    },
+    {
+      group: "Deck Laminar Floor Jets",
+      icon: "💦",
+      items: [
+        { path: "deck_jets.ne.water", label: "NE Floor Jet (Water Stream)", hint: "Northeast deck arc water stream", type: "CIRCUIT" },
+        { path: "deck_jets.ne.light", label: "NE Floor Jet (Light)", hint: "Northeast deck jet colored LED", type: "CIRCUIT" },
+        { path: "deck_jets.ne.thumper", label: "NE Floor Jet (Thumper)", hint: "Northeast laminar pulse effect", type: "CIRCUIT" },
+        { path: "deck_jets.nw.water", label: "NW Floor Jet (Water Stream)", hint: "Northwest deck arc water stream", type: "CIRCUIT" },
+        { path: "deck_jets.nw.light", label: "NW Floor Jet (Light)", hint: "Northwest deck jet colored LED", type: "CIRCUIT" },
+        { path: "deck_jets.nw.thumper", label: "NW Floor Jet (Thumper)", hint: "Northwest laminar pulse effect", type: "CIRCUIT" },
+        { path: "deck_jets.se.water", label: "SE Floor Jet (Water Stream)", hint: "Southeast deck arc water stream", type: "CIRCUIT" },
+        { path: "deck_jets.se.light", label: "SE Floor Jet (Light)", hint: "Southeast deck jet colored LED", type: "CIRCUIT" },
+        { path: "deck_jets.se.thumper", label: "SE Floor Jet (Thumper)", hint: "Southeast laminar pulse effect", type: "CIRCUIT" },
+        { path: "deck_jets.sw.water", label: "SW Floor Jet (Water Stream)", hint: "Southwest deck arc water stream", type: "CIRCUIT" },
+        { path: "deck_jets.sw.light", label: "SW Floor Jet (Light)", hint: "Southwest deck jet colored LED", type: "CIRCUIT" },
+        { path: "deck_jets.sw.thumper", label: "SW Floor Jet (Thumper)", hint: "Southwest laminar pulse effect", type: "CIRCUIT" }
+      ]
+    },
+    {
+      group: "Firepits & Spillways",
+      icon: "🔥",
+      items: [
+        { path: "firebaskets.east.burner", label: "East Firepit Burner", hint: "East firepit animated flame & ember", type: "CIRCUIT" },
+        { path: "firebaskets.east.water", label: "East Firepit Pool Spillway", hint: "East spillway flowing into pool", type: "CIRCUIT" },
+        { path: "firebaskets.east.spa_water", label: "East Firepit Spa Spillway", hint: "East spillway flowing into spa", type: "CIRCUIT" },
+        { path: "firebaskets.west.burner", label: "West Firepit Burner", hint: "West firepit animated flame & ember", type: "CIRCUIT" },
+        { path: "firebaskets.west.water", label: "West Firepit Pool Spillway", hint: "West spillway flowing into pool", type: "CIRCUIT" },
+        { path: "firebaskets.west.spa_water", label: "West Firepit Spa Spillway", hint: "West spillway flowing into spa", type: "CIRCUIT" }
+      ]
+    },
+    {
+      group: "Spa Air Blower",
+      icon: "💨",
+      items: [
+        { path: "blower.circuit", label: "Spa Air Blower Circuit", hint: "Bubbles & foam churn in spa", type: "CIRCUIT" }
+      ]
+    },
+    {
+      group: "Underwater Color LEDs",
+      icon: "💡",
+      items: [
+        { path: "lights.pool", label: "Pool Underwater Color Light", hint: "Pool interior basin illumination", type: "CIRCUIT" },
+        { path: "lights.spa", label: "Spa Underwater Color Light", hint: "Spa interior basin illumination", type: "CIRCUIT" }
+      ]
+    },
+    {
+      group: "Motorized 3-Way Valves",
+      icon: "🔀",
+      items: [
+        { path: "valves.drain", label: "Pool/Spa Drain Valve Actuator", hint: "Rotates drain valve on pad", type: "VALVE" },
+        { path: "valves.return", label: "Pool/Spa Return Valve Actuator", hint: "Rotates return valve on pad", type: "VALVE" }
+      ]
+    },
+    {
+      group: "Heater & Temperature",
+      icon: "🌡️",
+      items: [
+        { path: "heater.device", label: "Pool Gas Heater Device", hint: "Pad heater indicator & firing state", type: "HEATER" },
+        { path: "heater.body", label: "Heated Water Body Target", hint: "Water body heated by thermostat", type: "BODY" }
+      ]
+    }
+  ];
+
+  function getMappingValue(mapping, path) {
+    if (!mapping) return "";
+    var parts = path.split(".");
+    var cur = mapping;
+    for (var i = 0; i < parts.length; i++) {
+      if (!cur || typeof cur !== "object") return "";
+      cur = cur[parts[i]];
+    }
+    if (typeof cur === "string") return cur;
+    if (cur && typeof cur === "object") return cur.objnam || cur.name || "";
+    return "";
+  }
+
+  function setMappingValue(mapping, path, value) {
+    var parts = path.split(".");
+    var cur = mapping;
+    for (var i = 0; i < parts.length - 1; i++) {
+      if (!cur[parts[i]] || typeof cur[parts[i]] !== "object") {
+        cur[parts[i]] = {};
+      }
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  }
+
+  function isDeviceInCategory(obj, cat) {
+    if (cat === "all") return true;
+    var name = (obj.name || "").toLowerCase();
+    var objtype = (obj.objtype || "").toUpperCase();
+    var subtype = (obj.subtype || "").toUpperCase();
+
+    if (cat === "valves") {
+      return objtype === "VALVE" || subtype === "VALVE" || name.indexOf("valve") !== -1;
+    }
+    if (cat === "circuits") {
+      return objtype === "CIRCUIT";
+    }
+    if (cat === "relays") {
+      return objtype === "CIRCUIT" && (name.indexOf("aux") !== -1 || name.indexOf("relay") !== -1 || subtype === "GENERIC");
+    }
+    if (cat === "pumps") {
+      return objtype === "PUMP" || objtype === "PMPCIRC" || name.indexOf("pump") !== -1;
+    }
+    if (cat === "lights") {
+      return subtype === "LIGHT" || subtype === "INTELLI" || subtype === "GLOW" || subtype === "GLOWT" ||
+        subtype === "DIMMER" || name.indexOf("light") !== -1 || name.indexOf("led") !== -1 || name.indexOf("lamp") !== -1;
+    }
+    if (cat === "jets") {
+      return subtype === "MAGIC2" || name.indexOf("jet") !== -1 || name.indexOf("laminar") !== -1 ||
+        name.indexOf("fountain") !== -1 || name.indexOf("spillway") !== -1;
+    }
+    if (cat === "heaters") {
+      return objtype === "HEATER" || objtype === "CHEM" || objtype === "BODY" ||
+        name.indexOf("heater") !== -1 || name.indexOf("temp") !== -1 || name.indexOf("salt") !== -1 || name.indexOf("chlor") !== -1;
+    }
+    return true;
+  }
+
+  function getDeviceAnimationRole(objnam, name, resolved) {
+    if (!resolved) return null;
+    var n = (name || "").toUpperCase().trim();
+    function match(target) {
+      if (!target) return false;
+      return target === objnam || (typeof target === "string" && target.toUpperCase().trim() === n);
+    }
+
+    if (match(resolved.modes && resolved.modes.pool)) return "Mode: Pool";
+    if (match(resolved.modes && resolved.modes.spa)) return "Mode: Spa";
+    if (match(resolved.bodies && resolved.bodies.pool)) return "Body: Pool";
+    if (match(resolved.bodies && resolved.bodies.spa)) return "Body: Spa";
+
+    if (match(resolved.pumps && resolved.pumps.main)) return "Main Circulation Pump";
+    if (match(resolved.pumps && resolved.pumps.features)) return "Water Features Pump";
+    if (match(resolved.pump_programs && resolved.pump_programs.main)) return "Main Pump Program";
+    if (match(resolved.pump_programs && resolved.pump_programs.features)) return "Features Pump Program";
+
+    if (resolved.deck_jets) {
+      for (var jet in resolved.deck_jets) {
+        var spec = resolved.deck_jets[jet] || {};
+        if (match(spec.water)) return jet.toUpperCase() + " Floor Jet (Water)";
+        if (match(spec.light)) return jet.toUpperCase() + " Floor Jet (Light)";
+        if (match(spec.thumper)) return jet.toUpperCase() + " Floor Jet (Thumper)";
+      }
+    }
+
+    if (resolved.firebaskets) {
+      for (var b in resolved.firebaskets) {
+        var fspec = resolved.firebaskets[b] || {};
+        var bName = b === "east" ? "East Firepit" : "West Firepit";
+        if (match(fspec.water)) return bName + " Pool Spillway";
+        if (match(fspec.spa_water)) return bName + " Spa Spillway";
+        if (match(fspec.burner)) return bName + " Burner";
+        if (match(fspec.spillway_pool_led)) return bName + " Pool LED";
+        if (match(fspec.spillway_spa_led)) return bName + " Spa LED";
+      }
+    }
+
+    if (match(resolved.blower && resolved.blower.circuit)) return "Spa Blower";
+
+    if (resolved.lights) {
+      if (match(resolved.lights.pool)) return "Pool LED Light";
+      if (match(resolved.lights.spa)) return "Spa LED Light";
+    }
+
+    if (resolved.valves) {
+      if (match(resolved.valves.drain)) return "Drain 3-Way Valve";
+      if (match(resolved.valves.return)) return "Return 3-Way Valve";
+    }
+
+    if (resolved.heater) {
+      if (match(resolved.heater.device)) return "Pool Heater Device";
+      if (match(resolved.heater.body)) return "Heated Body Target";
+    }
+
+    return null;
+  }
+
+  async function controlDevice(objnam, on, speed, effect, setpoint) {
+    try {
+      var payload = { objnam: objnam };
+      if (on !== undefined && on !== null) payload.on = on;
+      if (speed !== undefined && speed !== null) payload.speed = speed;
+      if (effect !== undefined && effect !== null) payload.effect = effect;
+      if (setpoint !== undefined && setpoint !== null) payload.setpoint = setpoint;
+
+      var result = await api("/api/intellicenter/device/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (result && result.state) {
+        state = result.state;
+        render();
+      }
+      toast(result.message || ("Device " + objnam + " updated"), result.ok ? "good" : "error");
+      await loadIntelliCenter();
+    } catch (err) {
+      toast("Device control failed: " + err.message, "error");
+    }
+  }
+
+  async function loadIntelliCenter() {
+    try {
+      var data = await api("/api/intellicenter/devices");
+      icData = data;
+      renderIntelliCenter();
+    } catch (err) {
+      toast("Error loading IntelliCenter equipment: " + err.message, "error");
+    }
+  }
+
+  function renderIntelliCenter() {
+    if (!icData) return;
+    var inv = icData.inventory || {};
+    var objects = inv.objects || [];
+    var conn = icData.connection || {};
+    var resolved = icData.resolved || {};
+
+    // 1. Header status bar
+    var isOnline = !!conn.connected;
+    if ($("icLinkChip")) {
+      $("icLinkChip").textContent = isOnline ? "PANEL ONLINE" : "SIMULATION MODE";
+      $("icLinkChip").className = "chip " + (isOnline ? "live" : "simulation");
+    }
+    if ($("icEndpointText")) {
+      $("icEndpointText").textContent = conn.host ? (conn.host + ":" + (conn.port || 6681) + " (" + (conn.transport || "tcp") + ")") : "Simulation (local baseline)";
+    }
+    if ($("icDeviceCount")) {
+      $("icDeviceCount").textContent = objects.length;
+    }
+    var activeCount = 0;
+    objects.forEach(function (o) {
+      if (o.status === "ON" || o.status === "10" || o.status === "HEAT" || o.status === "2") {
+        activeCount++;
+      }
+    });
+    if ($("icActiveCount")) {
+      $("icActiveCount").textContent = activeCount;
+    }
+
+    // 2. Counts in category filter pills
+    var counts = { all: objects.length, valves: 0, circuits: 0, relays: 0, pumps: 0, lights: 0, jets: 0, heaters: 0 };
+    objects.forEach(function (o) {
+      if (isDeviceInCategory(o, "valves")) counts.valves++;
+      if (isDeviceInCategory(o, "circuits")) counts.circuits++;
+      if (isDeviceInCategory(o, "relays")) counts.relays++;
+      if (isDeviceInCategory(o, "pumps")) counts.pumps++;
+      if (isDeviceInCategory(o, "lights")) counts.lights++;
+      if (isDeviceInCategory(o, "jets")) counts.jets++;
+      if (isDeviceInCategory(o, "heaters")) counts.heaters++;
+    });
+    if ($("countAll")) $("countAll").textContent = counts.all;
+    if ($("countValves")) $("countValves").textContent = counts.valves;
+    if ($("countCircuits")) $("countCircuits").textContent = counts.circuits;
+    if ($("countRelays")) $("countRelays").textContent = counts.relays;
+    if ($("countPumps")) $("countPumps").textContent = counts.pumps;
+    if ($("countLights")) $("countLights").textContent = counts.lights;
+    if ($("countJets")) $("countJets").textContent = counts.jets;
+    if ($("countHeaters")) $("countHeaters").textContent = counts.heaters;
+
+    // 3. Filter and render grid
+    var grid = $("icDeviceGrid");
+    if (grid) {
+      var query = (icSearchQuery || "").toLowerCase().trim();
+      var filtered = objects.filter(function (o) {
+        if (!isDeviceInCategory(o, icCurrentFilter)) return false;
+        if (query) {
+          var name = (o.name || "").toLowerCase();
+          var objnam = (o.objnam || "").toLowerCase();
+          var subtype = (o.subtype || "").toLowerCase();
+          var objtype = (o.objtype || "").toLowerCase();
+          if (name.indexOf(query) === -1 && objnam.indexOf(query) === -1 &&
+              subtype.indexOf(query) === -1 && objtype.indexOf(query) === -1) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (!filtered.length) {
+        grid.innerHTML = '<div class="conn-detail" style="grid-column: 1 / -1; text-align: center; padding: 24px;">No equipment found matching criteria.</div>';
+      } else {
+        grid.innerHTML = filtered.map(function (obj) {
+          var isOn = (obj.status === "ON" || obj.status === "10" || obj.status === "HEAT" || obj.status === "2");
+          var objtype = obj.objtype || "CIRCUIT";
+          var subtype = obj.subtype || "GENERIC";
+          var isPump = (objtype === "PUMP" || objtype === "PMPCIRC");
+          var isLight = (subtype === "LIGHT" || subtype === "INTELLI" || subtype === "GLOW" || subtype === "GLOWT" || subtype === "DIMMER");
+          var isHeater = (objtype === "HEATER");
+          var isValve = (objtype === "VALVE");
+          var animRole = getDeviceAnimationRole(obj.objnam, obj.name, resolved);
+
+          var typeClass = "type-circuit";
+          if (isValve) typeClass = "type-valve";
+          else if (isPump) typeClass = "type-pump";
+          else if (isLight) typeClass = "type-light";
+          else if (isHeater) typeClass = "type-heater";
+
+          var statusLabel = isOn ? "ON" : "OFF";
+          if (isPump && isOn) {
+            var rpmVal = (obj.attrs && (obj.attrs.SPEED || obj.attrs.RPM)) || "Running";
+            statusLabel = rpmVal + " RPM";
+          }
+
+          var extraHtml = "";
+          if (isPump) {
+            var curRpm = parseInt((obj.attrs && (obj.attrs.SPEED || obj.attrs.RPM)) || 2200, 10);
+            extraHtml = '<div class="ic-extra-controls">' +
+              '<div class="ic-speed-row">' +
+              '<input type="range" class="ic-rpm-slider" min="450" max="3450" step="25" value="' + curRpm + '" data-objnam="' + escapeHtml(obj.objnam) + '">' +
+              '<span class="ic-speed-val">' + curRpm + ' RPM</span>' +
+              '<button class="btn small primary ic-apply-rpm" data-objnam="' + escapeHtml(obj.objnam) + '" style="padding: 4px 8px;">Set</button>' +
+              '</div></div>';
+          } else if (isLight) {
+            var curAct = (obj.attrs && (obj.attrs.ACT || obj.attrs.USE)) || "BLUER";
+            extraHtml = '<div class="ic-extra-controls">' +
+              '<div style="display:flex; align-items:center; gap:8px;">' +
+              '<select class="select ic-light-effect" data-objnam="' + escapeHtml(obj.objnam) + '" style="flex:1; padding:6px 8px; font-size:0.75rem;">' +
+              Object.keys(DEFAULT_EFFECTS).map(function (k) {
+                return '<option value="' + k + '"' + (k === curAct ? ' selected' : '') + '>' + DEFAULT_EFFECTS[k] + '</option>';
+              }).join("") +
+              '</select>' +
+              '</div></div>';
+          } else if (isHeater) {
+            var curTemp = parseInt((obj.attrs && (obj.attrs.LOTMP || obj.attrs.SETTMP)) || 84, 10);
+            extraHtml = '<div class="ic-extra-controls">' +
+              '<div class="ic-speed-row">' +
+              '<input type="range" class="ic-temp-slider" min="50" max="104" step="1" value="' + curTemp + '" data-objnam="' + escapeHtml(obj.objnam) + '">' +
+              '<span class="ic-speed-val">' + curTemp + '°F</span>' +
+              '<button class="btn small primary ic-apply-temp" data-objnam="' + escapeHtml(obj.objnam) + '" style="padding: 4px 8px;">Set</button>' +
+              '</div></div>';
+          } else if (isValve) {
+            var pos = (obj.attrs && (obj.attrs.POSIT || obj.attrs.CIRCUIT)) || (isOn ? "Open" : "Closed");
+            extraHtml = '<div class="ic-extra-controls"><span class="muted" style="font-size:0.72rem;">Valve Position: <b>' + escapeHtml(pos) + '</b></span></div>';
+          }
+
+          var deleteBtnHtml = obj.custom ? '<button class="btn small danger ic-delete-btn" data-objnam="' + escapeHtml(obj.objnam) + '" data-name="' + escapeHtml(obj.name) + '">Delete</button>' : '';
+
+          return '<div class="ic-card' + (isOn ? ' is-on' : '') + '">' +
+            '<div class="ic-card-head">' +
+            '<div class="ic-card-title-group">' +
+            '<div class="ic-card-name" title="' + escapeHtml(obj.name) + '">' + escapeHtml(obj.name) + '</div>' +
+            '<div class="ic-card-badges">' +
+            '<span class="ic-badge ' + typeClass + '">' + escapeHtml(objtype) + ' / ' + escapeHtml(subtype) + '</span>' +
+            '<span class="ic-badge">ID: ' + escapeHtml(obj.objnam) + '</span>' +
+            '</div></div>' +
+            '</div>' +
+            '<div>' +
+            (animRole ? '<span class="ic-mapping-tag">🎯 ' + escapeHtml(animRole) + '</span>'
+                      : '<span class="ic-mapping-tag unmapped">Unmapped to 3D scene</span>') +
+            '</div>' +
+            '<div class="ic-controls-row">' +
+            '<div class="ic-status-indicator ' + (isOn ? 'on' : 'off') + '">' +
+            '<span class="status-dot ' + (isOn ? '' : 'off') + '"></span>' +
+            '<span>' + escapeHtml(statusLabel) + '</span>' +
+            '</div>' +
+            '<label class="switch">' +
+            '<input type="checkbox" class="ic-power-toggle" data-objnam="' + escapeHtml(obj.objnam) + '"' + (isOn ? ' checked' : '') + '>' +
+            '<span class="slider"></span>' +
+            '</label>' +
+            '</div>' +
+            extraHtml +
+            '<div class="ic-card-actions">' +
+            deleteBtnHtml +
+            '<button class="btn small ghost ic-edit-btn" data-objnam="' + escapeHtml(obj.objnam) + '" data-name="' + escapeHtml(obj.name) + '" data-subtype="' + escapeHtml(subtype) + '" data-objtype="' + escapeHtml(objtype) + '">Edit</button>' +
+            '</div>' +
+            '</div>';
+        }).join("");
+      }
+    }
+
+    // 4. Render animation mapping section
+    renderAnimationMappingForm(icData);
+  }
+
+  function renderAnimationMappingForm(data) {
+    var container = $("icMappingFormGrid");
+    if (!container) return;
+    var inv = data.inventory || {};
+    var objects = inv.objects || [];
+    var mapping = data.mapping || {};
+
+    container.innerHTML = ANIMATION_SLOTS.map(function (grp) {
+      return '<div class="ic-map-group">' +
+        '<div class="ic-map-group-title"><span>' + grp.icon + '</span> ' + escapeHtml(grp.group) + '</div>' +
+        grp.items.map(function (item) {
+          var curVal = getMappingValue(mapping, item.path);
+          return '<div class="ic-map-row">' +
+            '<label><span>' + escapeHtml(item.label) + '</span><small class="muted">' + escapeHtml(item.hint) + '</small></label>' +
+            '<select class="select ic-map-select" data-slot="' + escapeHtml(item.path) + '">' +
+            '<option value="">(None / Unmapped)</option>' +
+            objects.map(function (obj) {
+              var isSelected = (curVal && (curVal === obj.objnam || curVal === obj.name));
+              return '<option value="' + escapeHtml(obj.name || obj.objnam) + '"' + (isSelected ? ' selected' : '') + '>' +
+                '[' + escapeHtml(obj.objnam) + '] ' + escapeHtml(obj.name) + ' (' + escapeHtml(obj.objtype) + (obj.subtype ? '/' + escapeHtml(obj.subtype) : '') + ')' +
+                '</option>';
+            }).join("") +
+            '</select></div>';
+        }).join("") +
+        '</div>';
+    }).join("");
+  }
+
+  function autoDetectAnimationMapping() {
+    if (!icData || !icData.inventory) return;
+    var objects = icData.inventory.objects || [];
+    var selects = document.querySelectorAll(".ic-map-select");
+    var matchedCount = 0;
+
+    function findMatchingObj(tokens, preferredTypes) {
+      var scored = [];
+      for (var i = 0; i < objects.length; i++) {
+        var obj = objects[i];
+        var name = (obj.name || "").toLowerCase();
+        var type = (obj.objtype || "").toUpperCase();
+        var sub = (obj.subtype || "").toUpperCase();
+        var score = 0;
+
+        if (preferredTypes && preferredTypes.indexOf(type) !== -1) {
+          score += 2;
+        }
+        var allMatch = true;
+        for (var t = 0; t < tokens.length; t++) {
+          if (name.indexOf(tokens[t]) !== -1) {
+            score += 3;
+          } else {
+            allMatch = false;
+          }
+        }
+        if (allMatch) score += 5;
+        if (score > 3) scored.push({ score: score, obj: obj });
+      }
+      if (!scored.length) return null;
+      scored.sort(function (a, b) { return b.score - a.score; });
+      return scored[0].obj;
+    }
+
+    selects.forEach(function (sel) {
+      var slot = sel.getAttribute("data-slot");
+      var matched = null;
+
+      if (slot === "modes.pool") matched = findMatchingObj(["pool"], ["CIRCUIT"]);
+      else if (slot === "modes.spa") matched = findMatchingObj(["spa"], ["CIRCUIT"]);
+      else if (slot === "bodies.pool") matched = findMatchingObj(["pool"], ["BODY"]);
+      else if (slot === "bodies.spa") matched = findMatchingObj(["spa"], ["BODY"]);
+      else if (slot === "pumps.main") matched = findMatchingObj(["main"], ["PUMP"]);
+      else if (slot === "pumps.features") matched = findMatchingObj(["feature"], ["PUMP"]);
+      else if (slot === "pump_programs.main") matched = findMatchingObj(["main"], ["PMPCIRC", "CIRCUIT"]);
+      else if (slot === "pump_programs.features") matched = findMatchingObj(["feature"], ["PMPCIRC", "CIRCUIT"]);
+      else if (slot === "deck_jets.ne.water") matched = findMatchingObj(["ne", "jet"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.ne.light") matched = findMatchingObj(["deck", "light"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.ne.thumper") matched = findMatchingObj(["thump"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.nw.water") matched = findMatchingObj(["nw", "jet"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.nw.light") matched = findMatchingObj(["deck", "light"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.nw.thumper") matched = findMatchingObj(["thump"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.se.water") matched = findMatchingObj(["se", "jet"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.se.light") matched = findMatchingObj(["deck", "light"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.se.thumper") matched = findMatchingObj(["thump"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.sw.water") matched = findMatchingObj(["sw", "jet"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.sw.light") matched = findMatchingObj(["deck", "light"], ["CIRCUIT"]);
+      else if (slot === "deck_jets.sw.thumper") matched = findMatchingObj(["thump"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.east.burner") matched = findMatchingObj(["east", "burner"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.east.water") matched = findMatchingObj(["pool", "fountain", "e"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.east.spa_water") matched = findMatchingObj(["spa", "fountain", "e"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.west.burner") matched = findMatchingObj(["west", "burner"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.west.water") matched = findMatchingObj(["pool", "fountain", "w"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.west.spa_water") matched = findMatchingObj(["spa", "fountain", "w"], ["CIRCUIT"]);
+      else if (slot === "blower.circuit") matched = findMatchingObj(["blower"], ["CIRCUIT"]);
+      else if (slot === "lights.pool") matched = findMatchingObj(["pool", "light"], ["CIRCUIT"]);
+      else if (slot === "lights.spa") matched = findMatchingObj(["spa", "light"], ["CIRCUIT"]);
+      else if (slot === "valves.drain") matched = findMatchingObj(["drain"], ["VALVE", "CIRCUIT"]);
+      else if (slot === "valves.return") matched = findMatchingObj(["return"], ["VALVE", "CIRCUIT"]);
+      else if (slot === "heater.device") matched = findMatchingObj(["heater"], ["HEATER", "CIRCUIT"]);
+      else if (slot === "heater.body") matched = findMatchingObj(["pool"], ["BODY"]);
+
+      if (matched) {
+        sel.value = matched.name || matched.objnam;
+        matchedCount++;
+      }
+    });
+
+    toast("Auto-detected and mapped " + matchedCount + " equipment slots! Click Save Animation Mappings to apply.", "good");
+  }
+
+  async function saveAnimationMappingFromUI() {
+    var selects = document.querySelectorAll(".ic-map-select");
+    var mapping = {
+      bodies: {},
+      modes: {},
+      pumps: {},
+      pump_programs: {},
+      deck_jets: { ne: {}, nw: {}, se: {}, sw: {} },
+      firebaskets: { east: {}, west: {} },
+      blower: {},
+      lights: {},
+      valves: {},
+      heater: {}
+    };
+
+    selects.forEach(function (sel) {
+      var slot = sel.getAttribute("data-slot");
+      var val = sel.value.trim();
+      setMappingValue(mapping, slot, val);
+    });
+
+    try {
+      var result = await api("/api/intellicenter/mapping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ devices: mapping })
+      });
+      if (result && result.state) {
+        state = result.state;
+        render();
+      }
+      toast(result.message || "Animation mapping saved!", "good");
+      await loadIntelliCenter();
+    } catch (err) {
+      toast("Error saving animation mapping: " + err.message, "error");
+    }
+  }
+
   async function loadAlexa() {
     try {
       var data = await api("/api/alexa");
@@ -1470,7 +2035,9 @@
       view.classList.toggle("active", view.id === "view-" + wanted);
     });
     if (!found) return;
-    if (wanted === "alexa") {
+    if (wanted === "intellicenter") {
+      loadIntelliCenter();
+    } else if (wanted === "alexa") {
       loadAlexa();
     } else if (wanted === "setup") {
       refreshInventory();
@@ -1730,6 +2297,204 @@
     document.querySelectorAll(".scene").forEach(function (btn) {
       btn.addEventListener("click", function () { runScene(btn.getAttribute("data-scene")); });
     });
+
+    // ----------------------------------------------------------------
+    // IntelliCenter tab events
+    // ----------------------------------------------------------------
+    document.querySelectorAll("#icFilterPills .filter-pill").forEach(function (pill) {
+      pill.addEventListener("click", function () {
+        document.querySelectorAll("#icFilterPills .filter-pill").forEach(function (p) { p.classList.remove("active"); });
+        pill.classList.add("active");
+        icCurrentFilter = pill.getAttribute("data-filter") || "all";
+        renderIntelliCenter();
+      });
+    });
+
+    if ($("icSearchInput")) {
+      $("icSearchInput").addEventListener("input", function (e) {
+        icSearchQuery = e.target.value;
+        renderIntelliCenter();
+      });
+    }
+
+    if ($("icRefreshBtn")) {
+      $("icRefreshBtn").addEventListener("click", function () {
+        loadIntelliCenter();
+        toast("IntelliCenter equipment refreshed", "good");
+      });
+    }
+
+    if ($("icAutoMapBtn")) {
+      $("icAutoMapBtn").addEventListener("click", autoDetectAnimationMapping);
+    }
+
+    if ($("icSaveMappingBtn")) {
+      $("icSaveMappingBtn").addEventListener("click", saveAnimationMappingFromUI);
+    }
+    if ($("icSaveMappingBtnBottom")) {
+      $("icSaveMappingBtnBottom").addEventListener("click", saveAnimationMappingFromUI);
+    }
+    if ($("icResetMappingBtn")) {
+      $("icResetMappingBtn").addEventListener("click", function () {
+        if (confirm("Reset animation mappings by auto-detecting current panel equipment?")) {
+          autoDetectAnimationMapping();
+        }
+      });
+    }
+
+    // Add device modal
+    if ($("icOpenAddModalBtn")) {
+      $("icOpenAddModalBtn").addEventListener("click", function () {
+        $("addDeviceModal").style.display = "grid";
+      });
+    }
+    if ($("closeAddDeviceModal")) {
+      $("closeAddDeviceModal").addEventListener("click", function () {
+        $("addDeviceModal").style.display = "none";
+      });
+    }
+    if ($("cancelAddDevice")) {
+      $("cancelAddDevice").addEventListener("click", function () {
+        $("addDeviceModal").style.display = "none";
+      });
+    }
+    if ($("confirmAddDevice")) {
+      $("confirmAddDevice").addEventListener("click", async function () {
+        var type = $("newDevType").value;
+        var name = $("newDevName").value.trim();
+        var subtype = $("newDevSubtype").value;
+        var extra = $("newDevExtra").value.trim();
+        if (!name) {
+          toast("Please enter a device name", "error");
+          return;
+        }
+        try {
+          var result = await api("/api/intellicenter/device/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ objtype: type, name: name, subtype: subtype, params: { CIRCUIT: extra } })
+          });
+          $("addDeviceModal").style.display = "none";
+          $("newDevName").value = "";
+          $("newDevExtra").value = "";
+          toast(result.message || "Equipment added to IntelliCenter!", "good");
+          await loadIntelliCenter();
+        } catch (err) {
+          toast("Error adding equipment: " + err.message, "error");
+        }
+      });
+    }
+
+    // Edit device modal
+    if ($("closeEditDeviceModal")) {
+      $("closeEditDeviceModal").addEventListener("click", function () {
+        $("editDeviceModal").style.display = "none";
+      });
+    }
+    if ($("cancelEditDevice")) {
+      $("cancelEditDevice").addEventListener("click", function () {
+        $("editDeviceModal").style.display = "none";
+      });
+    }
+    if ($("confirmEditDevice")) {
+      $("confirmEditDevice").addEventListener("click", async function () {
+        var objnam = $("editDevObjnam").value;
+        var name = $("editDevName").value.trim();
+        var subtype = $("editDevSubtype").value;
+        if (!name) {
+          toast("Name cannot be empty", "error");
+          return;
+        }
+        try {
+          var result = await api("/api/intellicenter/device/edit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ objnam: objnam, name: name, subtype: subtype })
+          });
+          $("editDeviceModal").style.display = "none";
+          toast(result.message || "Equipment updated!", "good");
+          await loadIntelliCenter();
+        } catch (err) {
+          toast("Error updating equipment: " + err.message, "error");
+        }
+      });
+    }
+
+    // Device grid event delegation
+    var icGrid = $("icDeviceGrid");
+    if (icGrid) {
+      icGrid.addEventListener("change", function (e) {
+        if (e.target.classList.contains("ic-power-toggle")) {
+          var objnam = e.target.getAttribute("data-objnam");
+          controlDevice(objnam, e.target.checked);
+        } else if (e.target.classList.contains("ic-light-effect")) {
+          var objnam = e.target.getAttribute("data-objnam");
+          controlDevice(objnam, null, null, e.target.value);
+        }
+      });
+
+      icGrid.addEventListener("input", function (e) {
+        if (e.target.classList.contains("ic-rpm-slider")) {
+          var readout = e.target.nextElementSibling;
+          if (readout) readout.textContent = e.target.value + " RPM";
+        } else if (e.target.classList.contains("ic-temp-slider")) {
+          var readout = e.target.nextElementSibling;
+          if (readout) readout.textContent = e.target.value + "°F";
+        }
+      });
+
+      icGrid.addEventListener("click", function (e) {
+        var applyRpm = e.target.closest(".ic-apply-rpm");
+        if (applyRpm) {
+          var objnam = applyRpm.getAttribute("data-objnam");
+          var slider = icGrid.querySelector('.ic-rpm-slider[data-objnam="' + objnam + '"]');
+          if (slider) controlDevice(objnam, null, parseInt(slider.value, 10));
+          return;
+        }
+
+        var applyTemp = e.target.closest(".ic-apply-temp");
+        if (applyTemp) {
+          var objnam = applyTemp.getAttribute("data-objnam");
+          var slider = icGrid.querySelector('.ic-temp-slider[data-objnam="' + objnam + '"]');
+          if (slider) controlDevice(objnam, null, null, null, parseInt(slider.value, 10));
+          return;
+        }
+
+        var editBtn = e.target.closest(".ic-edit-btn");
+        if (editBtn) {
+          var objnam = editBtn.getAttribute("data-objnam");
+          var name = editBtn.getAttribute("data-name");
+          var subtype = editBtn.getAttribute("data-subtype");
+          var objtype = editBtn.getAttribute("data-objtype");
+          $("editDevObjnam").value = objnam;
+          $("editDevObjnamDisplay").value = objnam;
+          $("editDevObjtypeDisplay").value = objtype;
+          $("editDevName").value = name;
+          $("editDevSubtype").value = subtype;
+          $("editDeviceModal").style.display = "grid";
+          return;
+        }
+
+        var delBtn = e.target.closest(".ic-delete-btn");
+        if (delBtn) {
+          var objnam = delBtn.getAttribute("data-objnam");
+          var name = delBtn.getAttribute("data-name");
+          if (confirm("Remove custom equipment " + name + " (" + objnam + ") from IntelliCenter?")) {
+            api("/api/intellicenter/device/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ objnam: objnam })
+            }).then(function (res) {
+              toast(res.message || "Equipment removed", "good");
+              loadIntelliCenter();
+            }).catch(function (err) {
+              toast("Error deleting equipment: " + err.message, "error");
+            });
+          }
+          return;
+        }
+      });
+    }
   }
 
   function startLivePoolCamera() {

@@ -101,7 +101,7 @@ PORT = int(os.environ.get("PORT", CONFIG.get("port", 2490)))
 HOST = os.environ.get("HOST", os.environ.get("IP", CONFIG.get("host", "0.0.0.0")))
 DIRECTORY = os.environ.get("DIRECTORY", STATIC_DIR)
 
-BRIDGE = IntelliCenterBridge(CONFIG.get("intellicenter", {}))
+BRIDGE = IntelliCenterBridge(CONFIG)
 CONTROLLER = PoolController(CONFIG, BRIDGE, save_config=save_config)
 GEMINI = GeminiPoolBridge()
 LOCAL_AUDIO: LocalAudio | None = None
@@ -352,11 +352,14 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 "camera": LOCAL_CAMERA.status() if LOCAL_CAMERA else None,
                 "schedule": _state().get("schedule"),
             })
-        elif path == "/api/inventory":
+        elif path in ("/api/inventory", "/api/intellicenter/devices"):
             self.send_json({
+                "ok": True,
                 "connection": BRIDGE.status(),
                 "inventory": BRIDGE.inventory(),
                 "resolved": BRIDGE.resolved(),
+                "mapping": CONFIG.get("devices", {}),
+                "custom_devices": CONFIG.get("custom_devices", []),
             })
         elif path == "/api/config":
             self.send_json(_public_config())
@@ -417,6 +420,31 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 data.get("action", ""), data.get("payload") or data.get("params") or {}
             )
             self.send_json(result)
+            return
+
+        if path == "/api/intellicenter/device/control":
+            res = CONTROLLER.command("ic_set_device", data)
+            self.send_json(res)
+            return
+
+        if path == "/api/intellicenter/device/edit":
+            res = CONTROLLER.command("ic_edit_device", data)
+            self.send_json(res)
+            return
+
+        if path == "/api/intellicenter/device/add":
+            res = CONTROLLER.command("ic_add_device", data)
+            self.send_json(res)
+            return
+
+        if path == "/api/intellicenter/device/delete":
+            res = CONTROLLER.command("ic_delete_device", data)
+            self.send_json(res)
+            return
+
+        if path == "/api/intellicenter/mapping":
+            res = CONTROLLER.command("save_animation_mapping", data)
+            self.send_json(res)
             return
 
         if path == "/api/settings":

@@ -32,6 +32,7 @@
     <section class="controls-column">
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="control">Control</button>
+        <button class="tab" data-tab="intellicenter">IntelliCenter</button>
         <button class="tab" data-tab="schedule">Schedule</button>
         <button class="tab" data-tab="voice">Voice</button>
         <button class="tab" data-tab="alexa">Alexa</button>
@@ -529,6 +530,90 @@
 
       </div>
 
+      <!-- INTELLICENTER EQUIPMENT TAB -->
+      <div class="view" id="view-intellicenter">
+        <section class="card hero-card">
+          <div class="card-head">
+            <div>
+              <h2>Pentair IntelliCenter Equipment</h2>
+              <p class="muted">Live valves, circuits, relays, pumps, lights, and water features on the local IntelliCenter. Turn devices on/off, change speeds and effects, edit or add equipment, and map detected devices to the 3D pool animation.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn small" id="icRefreshBtn">Refresh Panel</button>
+              <button class="btn primary small" id="icOpenAddModalBtn">+ Add Device</button>
+            </div>
+          </div>
+
+          <div class="ic-status-bar">
+            <div class="ic-status-item">
+              <span class="stat-label">Panel Link</span>
+              <span class="chip" id="icLinkChip">SIMULATION</span>
+            </div>
+            <div class="ic-status-item">
+              <span class="stat-label">Panel Endpoint</span>
+              <span class="stat-value small-value" id="icEndpointText">--</span>
+            </div>
+            <div class="ic-status-item">
+              <span class="stat-label">Total Devices</span>
+              <span class="stat-value" id="icDeviceCount">--</span>
+            </div>
+            <div class="ic-status-item">
+              <span class="stat-label">Active (ON)</span>
+              <span class="stat-value" id="icActiveCount">--</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Category Filters & Search -->
+        <section class="card ic-toolbar-card">
+          <div class="ic-toolbar">
+            <div class="ic-filter-pills" id="icFilterPills">
+              <button class="filter-pill active" data-filter="all">All <span class="pill-count" id="countAll">0</span></button>
+              <button class="filter-pill" data-filter="valves">Valves <span class="pill-count" id="countValves">0</span></button>
+              <button class="filter-pill" data-filter="circuits">Circuits <span class="pill-count" id="countCircuits">0</span></button>
+              <button class="filter-pill" data-filter="relays">Relays &amp; Aux <span class="pill-count" id="countRelays">0</span></button>
+              <button class="filter-pill" data-filter="pumps">Pumps <span class="pill-count" id="countPumps">0</span></button>
+              <button class="filter-pill" data-filter="lights">Lights <span class="pill-count" id="countLights">0</span></button>
+              <button class="filter-pill" data-filter="jets">Deck Jets &amp; Features <span class="pill-count" id="countJets">0</span></button>
+              <button class="filter-pill" data-filter="heaters">Heaters &amp; Chem <span class="pill-count" id="countHeaters">0</span></button>
+            </div>
+            <div class="ic-search-wrap">
+              <input type="text" id="icSearchInput" placeholder="Filter devices by name, objnam, or subtype...">
+            </div>
+          </div>
+        </section>
+
+        <!-- Equipment Grid -->
+        <div class="ic-device-grid" id="icDeviceGrid">
+          <!-- Populated dynamically by app.js -->
+        </div>
+
+        <!-- Animation Mapping Section -->
+        <section class="card" id="icAnimationMappingCard">
+          <div class="card-head">
+            <div>
+              <h2>Map IntelliCenter Devices to 3D Animation</h2>
+              <p class="muted">Map any detected valve, circuit, relay, pump, light, or water feature to each visual element in the 3D pool and spa animation. When the device changes on IntelliCenter, the animation updates in real time.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn small" id="icAutoMapBtn" title="Auto-match detected devices to animation elements">Auto-Detect &amp; Map</button>
+              <button class="btn primary small" id="icSaveMappingBtn">Save Animation Mappings</button>
+            </div>
+          </div>
+
+          <div class="ic-mapping-container">
+            <div id="icMappingFormGrid" class="ic-mapping-grid">
+              <!-- Dynamically populated by renderAnimationMappingForm() -->
+            </div>
+          </div>
+
+          <div class="row-actions" style="margin-top: 16px;">
+            <button class="btn primary" id="icSaveMappingBtnBottom">Save Animation Mappings</button>
+            <button class="btn ghost small" id="icResetMappingBtn">Reset to Defaults</button>
+          </div>
+        </section>
+      </div>
+
       <!-- ALEXA SKILLS TAB -->
       <div class="view" id="view-alexa">
         <section class="card">
@@ -667,6 +752,94 @@
       </section>
     </aside>
   </main>
+
+  <!-- Modal: Add Device -->
+  <div class="modal-backdrop" id="addDeviceModal" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-head">
+        <h3>Add Equipment to IntelliCenter</h3>
+        <button class="modal-close" id="closeAddDeviceModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <label>Equipment Type
+            <select id="newDevType" class="select">
+              <option value="CIRCUIT">Circuit / Feature</option>
+              <option value="VALVE">Valve Actuator (3-Way / Aux)</option>
+              <option value="PUMP">Variable Speed Pump</option>
+              <option value="HEATER">Heater</option>
+            </select>
+          </label>
+          <label>Friendly Name
+            <input type="text" id="newDevName" placeholder="e.g. Laminar Accent Jet, Aux Valve 1">
+          </label>
+          <label>Subtype
+            <select id="newDevSubtype" class="select">
+              <option value="GENERIC">Generic Circuit / Relay</option>
+              <option value="MAGIC2">MagicStream / Deck Jet</option>
+              <option value="LIGHT">Standard Light</option>
+              <option value="INTELLI">IntelliBrite Color LED</option>
+              <option value="GLOW">GloBrite Color LED</option>
+              <option value="DIMMER">Dimmer</option>
+              <option value="VALVE">Motorized Valve Actuator</option>
+              <option value="VS">Variable Speed (VS)</option>
+              <option value="CLEANER">Cleaner / Booster</option>
+              <option value="SPILLWAY">Spillway Feature</option>
+            </select>
+          </label>
+          <label id="newDevExtraLabel">Assigned Circuit / Port
+            <input type="text" id="newDevExtra" placeholder="e.g. POOL, AUX1, or leave blank">
+          </label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="cancelAddDevice">Cancel</button>
+        <button class="btn primary" id="confirmAddDevice">Add Device</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Edit Device -->
+  <div class="modal-backdrop" id="editDeviceModal" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-head">
+        <h3>Edit IntelliCenter Device</h3>
+        <button class="modal-close" id="closeEditDeviceModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editDevObjnam">
+        <div class="form-grid">
+          <label>Object Identifier
+            <input type="text" id="editDevObjnamDisplay" disabled>
+          </label>
+          <label>Object Type
+            <input type="text" id="editDevObjtypeDisplay" disabled>
+          </label>
+          <label>Friendly Name (SNAME)
+            <input type="text" id="editDevName" placeholder="Friendly device name">
+          </label>
+          <label>Subtype (SUBTYP)
+            <select id="editDevSubtype" class="select">
+              <option value="GENERIC">GENERIC (Standard Relay/Circuit)</option>
+              <option value="MAGIC2">MAGIC2 (Laminar / Deck Jet)</option>
+              <option value="LIGHT">LIGHT (Standard)</option>
+              <option value="INTELLI">INTELLI (IntelliBrite Color LED)</option>
+              <option value="GLOW">GLOW (GloBrite Color LED)</option>
+              <option value="DIMMER">DIMMER</option>
+              <option value="VALVE">VALVE (Actuator)</option>
+              <option value="VS">VS (Variable Speed Pump)</option>
+              <option value="CLEANER">CLEANER</option>
+              <option value="SPILLWAY">SPILLWAY</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="cancelEditDevice">Cancel</button>
+        <button class="btn primary" id="confirmEditDevice">Save Changes</button>
+      </div>
+    </div>
+  </div>
 
   <div class="toast" id="toast"></div>
   <script src="pool3d.js?v=7"></script>

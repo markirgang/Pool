@@ -41,6 +41,13 @@ try:  # pyintellicenter is optional so the UI still runs on a plain desktop.
 except Exception as exc:  # pragma: no cover - depends on the host
     PYIC_AVAILABLE = False
     PYIC_IMPORT_ERROR = str(exc)
+    BODY_TYPE = "BODY"
+    CHEM_TYPE = "CHEM"
+    CIRCUIT_TYPE = "CIRCUIT"
+    HEATER_TYPE = "HEATER"
+    PMPCIRC_TYPE = "PMPCIRC"
+    PUMP_TYPE = "PUMP"
+    VALVE_TYPE = "VALVE"
 else:
     PYIC_IMPORT_ERROR = None
 
@@ -96,13 +103,20 @@ class IntelliCenterBridge:
         self._restart = threading.Event()
         self._connected = False
         self._host = ""
-        self._port = int(config.get("port", 6681))
-        self._transport = config.get("transport", "tcp")
+        ic = self.ic_config
+        self._port = int(ic.get("port", 6681))
+        self._transport = ic.get("transport", "tcp")
         self._last_error = None if PYIC_AVAILABLE else PYIC_IMPORT_ERROR
         self._last_connect = 0.0
         self._inventory: dict[str, Any] = self._empty_inventory()
-        self._resolved: dict[str, Any] = {}
+        self._resolved: dict[str, Any] = self._resolve_mappings(self._inventory)
         self._started = False
+
+    @property
+    def ic_config(self) -> dict[str, Any]:
+        if isinstance(self.config.get("intellicenter"), dict):
+            return self.config["intellicenter"]
+        return self.config
 
     # ------------------------------------------------------------------
     # Public API
@@ -130,14 +144,15 @@ class IntelliCenterBridge:
     def reconfigure(self, host: str | None = None, port: int | None = None,
                     transport: str | None = None) -> None:
         with self._lock:
-            self.config["host"] = (host or "").strip()
+            ic = self.ic_config
+            ic["host"] = (host or "").strip()
             if port:
                 self._port = int(port)
-                self.config["port"] = self._port
+                ic["port"] = self._port
             if transport in ("tcp", "websocket"):
                 self._transport = transport
-                self.config["transport"] = transport
-            self._host = self.config["host"]
+                ic["transport"] = transport
+            self._host = ic["host"]
         self._restart.set()
 
     def remap(self) -> None:
@@ -151,6 +166,9 @@ class IntelliCenterBridge:
                 )
             except Exception:
                 LOG.debug("Unable to schedule IntelliCenter remap", exc_info=True)
+        else:
+            with self._lock:
+                self._resolved = self._resolve_mappings(self._inventory)
 
     @property
     def connected(self) -> bool:
@@ -211,6 +229,230 @@ class IntelliCenterBridge:
                 self._last_error = str(exc)
             return False, str(exc)
 
+    def set_device_state(
+        self,
+        objnam: str,
+        on: bool | None = None,
+        speed: int | None = None,
+        effect: str | None = None,
+        setpoint: int | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bool, str]:
+        """Turn on/off or set params on any IntelliCenter device."""
+        with self._lock:
+            target_obj = None
+            for obj in self._inventory.get("objects", []):
+                if obj.get("objnam") == objnam:
+                    target_obj = obj
+                    break
+
+            changes: dict[str, Any] = dict(params or {})
+            objtype = target_obj.get("objtype") if target_obj else ""
+
+            if on is not None:
+                if objtype == "PUMP":
+                    changes["STATUS"] = "10" if on else "4"
+                elif objtype == "HEATER":
+                    changes["MODE"] = "2" if on else "1"
+                else:
+                    changes["STATUS"] = "ON" if on else "OFF"
+
+            if speed is not None:
+                speed_val = str(int(speed))
+                changes["SPEED"] = speed_val
+                changes["RPM"] = speed_val
+                changes["SELECT"] = "RPM"
+
+            if effect is not None:
+                effect_str = str(effect).upper()
+                changes["ACT"] = effect_str
+                changes["USE"] = effect_str
+
+            if setpoint is not None:
+                changes["LOTMP"] = str(int(setpoint))
+
+            # Optimistically apply to local inventory object
+            if target_obj:
+                target_obj.setdefault("attrs", {}).update(changes)
+                if "STATUS" in changes:
+                    target_obj["status"] = changes["STATUS"]
+
+                # If pump, sync corresponding pump circuit or vice-versa
+                if objtype == "PUMP" and ("SPEED" in changes or "STATUS" in changes):
+                    for pc in self._inventory.get("pump_circuits", []):
+                        if pc.get("attrs", {}).get("PARENT") == objnam or pc.get("name") == target_obj.get("name"):
+                            pc.setdefault("attrs", {}).update(changes)
+                            if "STATUS" in changes:
+                                pc["status"] = "ON" if changes["STATUS"] == "10" else "OFF"
+                elif objtype == "PMPCIRC" and ("SPEED" in changes or "STATUS" in changes):
+                    parent_id = target_obj.get("attrs", {}).get("PARENT")
+                    for p in self._inventory.get("pumps", []):
+                        if p.get("objnam") == parent_id or p.get("name") == target_obj.get("name"):
+                            p.setdefault("attrs", {}).update(changes)
+                            if "STATUS" in changes:
+                                p["status"] = "10" if changes["STATUS"] == "ON" else "4"
+
+            # Persist custom device state
+            for cd in self.config.get("custom_devices", []):
+                if cd.get("objnam") == objnam:
+                    cd.setdefault("attrs", {}).update(changes)
+                    if "STATUS" in changes:
+                        cd["status"] = changes["STATUS"]
+
+        if self._connected:
+            return self.write({objnam: changes}, reason=f"device_{objnam}")
+        return True, f"Device {objnam} set (simulation)"
+
+    def edit_device(
+        self,
+        objnam: str,
+        name: str | None = None,
+        subtype: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bool, str]:
+        """Edit friendly name, subtype, or properties of an IntelliCenter device."""
+        with self._lock:
+            target_obj = None
+            for obj in self._inventory.get("objects", []):
+                if obj.get("objnam") == objnam:
+                    target_obj = obj
+                    break
+            if not target_obj:
+                return False, f"Device {objnam} not found"
+
+            changes: dict[str, Any] = dict(params or {})
+            if name is not None:
+                name_str = str(name).strip()
+                changes["SNAME"] = name_str
+                target_obj["name"] = name_str
+            if subtype is not None:
+                sub_str = str(subtype).strip().upper()
+                changes["SUBTYP"] = sub_str
+                target_obj["subtype"] = sub_str
+
+            target_obj.setdefault("attrs", {}).update(changes)
+
+            for key in ("circuits", "pumps", "pump_circuits", "bodies", "heaters", "valves", "chemistry"):
+                for item in self._inventory.get(key, []):
+                    if item.get("objnam") == objnam:
+                        if name:
+                            item["name"] = name_str
+                        if subtype:
+                            item["subtype"] = sub_str
+                        item.setdefault("attrs", {}).update(changes)
+
+            for cd in self.config.get("custom_devices", []):
+                if cd.get("objnam") == objnam:
+                    if name:
+                        cd["name"] = name_str
+                    if subtype:
+                        cd["subtype"] = sub_str
+                    cd.setdefault("attrs", {}).update(changes)
+
+            self._resolved = self._resolve_mappings(self._inventory)
+
+        if self._connected:
+            ok, msg = self.write({objnam: changes}, reason=f"edit_device_{objnam}")
+            return ok, msg
+        return True, f"Device {objnam} updated"
+
+    def add_device(
+        self,
+        objtype: str,
+        name: str,
+        subtype: str = "GENERIC",
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Add a new valve, circuit, relay, pump, or device."""
+        objtype = str(objtype).strip().upper()
+        if objtype not in ("CIRCUIT", "VALVE", "PUMP", "PMPCIRC", "HEATER", "CHEM", "BODY"):
+            objtype = "CIRCUIT"
+        subtype = str(subtype or "GENERIC").strip().upper()
+        name = str(name).strip()
+        if not name:
+            name = f"New {objtype.capitalize()}"
+
+        prefix_map = {
+            "CIRCUIT": "C",
+            "VALVE": "V",
+            "PUMP": "P",
+            "PMPCIRC": "PC",
+            "HEATER": "H",
+            "CHEM": "CH",
+            "BODY": "B",
+        }
+        prefix = prefix_map.get(objtype, "C")
+
+        with self._lock:
+            existing = {obj.get("objnam") for obj in self._inventory.get("objects", [])}
+            idx = 100
+            while f"{prefix}{idx:04d}" in existing:
+                idx += 1
+            new_id = f"{prefix}{idx:04d}"
+
+            attrs = {
+                "OBJTYP": objtype,
+                "SUBTYP": subtype,
+                "SNAME": name,
+                "STATUS": "OFF",
+                **(params or {})
+            }
+            if objtype == "PUMP":
+                attrs.setdefault("SPEED", "2200")
+                attrs.setdefault("RPM", "2200")
+                attrs.setdefault("SELECT", "RPM")
+                attrs["STATUS"] = "4"
+
+            new_obj = {
+                "objnam": new_id,
+                "objtype": objtype,
+                "subtype": subtype,
+                "name": name,
+                "status": attrs["STATUS"],
+                "attrs": attrs,
+                "custom": True,
+            }
+
+            self._inventory["objects"].append(new_obj)
+            cat_map = {
+                "CIRCUIT": "circuits",
+                "VALVE": "valves",
+                "PUMP": "pumps",
+                "PMPCIRC": "pump_circuits",
+                "HEATER": "heaters",
+                "CHEM": "chemistry",
+                "BODY": "bodies",
+            }
+            cat = cat_map.get(objtype)
+            if cat and cat in self._inventory:
+                self._inventory[cat].append(new_obj)
+                self._inventory[cat].sort(key=lambda o: ((o.get("name") or "").lower(), o.get("objnam")))
+
+            self.config.setdefault("custom_devices", []).append(new_obj)
+            self._resolved = self._resolve_mappings(self._inventory)
+
+        if self._connected:
+            self.write({new_id: attrs}, reason=f"add_device_{new_id}")
+        return True, f"Device {name} ({new_id}) created", new_obj
+
+    def delete_device(self, objnam: str) -> tuple[bool, str]:
+        """Delete a custom device."""
+        with self._lock:
+            self._inventory["objects"] = [
+                o for o in self._inventory.get("objects", []) if o.get("objnam") != objnam
+            ]
+            for cat in ("circuits", "valves", "pumps", "pump_circuits", "heaters", "chemistry", "bodies"):
+                if cat in self._inventory:
+                    self._inventory[cat] = [
+                        o for o in self._inventory[cat] if o.get("objnam") != objnam
+                    ]
+            customs = self.config.get("custom_devices", [])
+            self.config["custom_devices"] = [
+                cd for cd in customs if cd.get("objnam") != objnam
+            ]
+            self._resolved = self._resolve_mappings(self._inventory)
+            return True, f"Device {objnam} removed"
+
     # ------------------------------------------------------------------
     # Async connection lifecycle
     # ------------------------------------------------------------------
@@ -234,7 +476,7 @@ class IntelliCenterBridge:
             self._set_error(PYIC_IMPORT_ERROR or "pyintellicenter is not installed")
             return
 
-        cfg = self.config
+        cfg = self.ic_config
         self._host = str(cfg.get("host") or "").strip()
         self._port = int(cfg.get("port") or 6681)
         self._transport = cfg.get("transport") or "tcp"
@@ -243,7 +485,7 @@ class IntelliCenterBridge:
             if self._restart.is_set():
                 await self._teardown_handler()
                 self._restart.clear()
-                cfg = self.config
+                cfg = self.ic_config
                 self._host = str(cfg.get("host") or "").strip()
                 self._port = int(cfg.get("port") or 6681)
                 self._transport = cfg.get("transport") or "tcp"
@@ -268,7 +510,7 @@ class IntelliCenterBridge:
     async def _discover(self) -> tuple[str, int] | None:
         try:
             units = await discover_intellicenter_units(
-                discovery_timeout=float(self.config.get("discovery_timeout", 6))
+                discovery_timeout=float(self.ic_config.get("discovery_timeout", 6))
             )
         except Exception as exc:
             LOG.warning("IntelliCenter discovery failed: %s", exc)
@@ -362,6 +604,22 @@ class IntelliCenterBridge:
     def _publish_from_controller(self, controller: Any) -> None:
         try:
             inventory = self._build_inventory(controller)
+            # Merge any user-added custom devices
+            for cd in self.config.get("custom_devices", []):
+                if not any(o.get("objnam") == cd.get("objnam") for o in inventory.get("objects", [])):
+                    inventory["objects"].append(cd)
+                    cat_map = {
+                        "CIRCUIT": "circuits",
+                        "VALVE": "valves",
+                        "PUMP": "pumps",
+                        "PMPCIRC": "pump_circuits",
+                        "HEATER": "heaters",
+                        "CHEM": "chemistry",
+                        "BODY": "bodies",
+                    }
+                    cat = cat_map.get(cd.get("objtype"))
+                    if cat and cat in inventory:
+                        inventory[cat].append(cd)
             resolved = self._resolve_mappings(inventory)
         except Exception:
             LOG.exception("Unable to read IntelliCenter model")
@@ -445,6 +703,8 @@ class IntelliCenterBridge:
             if objtype:
                 objects = [o for o in objects if o["objtype"] == objtype]
             objnam = _spec_objnam(spec)
+            if not objnam and isinstance(spec, str) and any(o["objnam"] == spec for o in objects):
+                objnam = spec
             if objnam:
                 for obj in objects:
                     if obj["objnam"] == objnam:
@@ -456,7 +716,7 @@ class IntelliCenterBridge:
             wanted = _norm(name)
             if not wanted:
                 return None
-            exact = [o for o in objects if _norm(o["name"]) == wanted]
+            exact = [o for o in objects if _norm(o["name"]) == wanted or _norm(o["objnam"]) == wanted]
             if exact:
                 return exact[0]["objnam"]
             wt = _tokens(name)
@@ -505,6 +765,7 @@ class IntelliCenterBridge:
             "blower": {},
             "lights": {},
             "heater": {},
+            "valves": {},
         }
 
         for key, spec in (devices.get("bodies") or {}).items():
@@ -539,6 +800,8 @@ class IntelliCenterBridge:
         resolved["heater"]["device"] = find(
             heater.get("device"), HEATER_TYPE, inventory["heaters"]
         )
+        for key, spec in (devices.get("valves") or {}).items():
+            resolved["valves"][key] = find(spec, VALVE_TYPE, inventory.get("valves", [])) or find(spec, CIRCUIT_TYPE, circuits)
         return resolved
 
     @staticmethod
@@ -554,17 +817,102 @@ class IntelliCenterBridge:
                 yield value
 
     def _empty_inventory(self) -> dict[str, Any]:
+        objects = [
+            # Water bodies
+            {"objnam": "B1001", "objtype": BODY_TYPE, "subtype": "POOL", "name": "POOL", "status": "ON",
+             "attrs": {"OBJTYP": BODY_TYPE, "SUBTYP": "POOL", "SNAME": "POOL", "LOTMP": "84", "TEMP": "84", "MODE": "1", "HTMODE": "OFF"}},
+            {"objnam": "B1002", "objtype": BODY_TYPE, "subtype": "SPA", "name": "SPA", "status": "OFF",
+             "attrs": {"OBJTYP": BODY_TYPE, "SUBTYP": "SPA", "SNAME": "SPA", "LOTMP": "102", "TEMP": "102", "MODE": "1", "HTMODE": "OFF"}},
+            # Circuits & Relays
+            {"objnam": "C0001", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "POOL", "status": "ON",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "POOL", "STATUS": "ON"}},
+            {"objnam": "C0002", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "SPA", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "SPA", "STATUS": "OFF"}},
+            {"objnam": "C0003", "objtype": CIRCUIT_TYPE, "subtype": "MAGIC2", "name": "NE Floor Jet", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "MAGIC2", "SNAME": "NE Floor Jet", "STATUS": "OFF"}},
+            {"objnam": "C0004", "objtype": CIRCUIT_TYPE, "subtype": "MAGIC2", "name": "NW Floor Jet", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "MAGIC2", "SNAME": "NW Floor Jet", "STATUS": "OFF"}},
+            {"objnam": "C0005", "objtype": CIRCUIT_TYPE, "subtype": "MAGIC2", "name": "SE Floor Jet", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "MAGIC2", "SNAME": "SE Floor Jet", "STATUS": "OFF"}},
+            {"objnam": "C0006", "objtype": CIRCUIT_TYPE, "subtype": "MAGIC2", "name": "SW Floor Jet", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "MAGIC2", "SNAME": "SW Floor Jet", "STATUS": "OFF"}},
+            {"objnam": "C0007", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "Pool Fountain E", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "Pool Fountain E", "STATUS": "OFF"}},
+            {"objnam": "C0008", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "Spa Fountain E", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "Spa Fountain E", "STATUS": "OFF"}},
+            {"objnam": "C0009", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "Pool Fountain W", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "Pool Fountain W", "STATUS": "OFF"}},
+            {"objnam": "C0010", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "Spa Fountain W", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "Spa Fountain W", "STATUS": "OFF"}},
+            {"objnam": "C0011", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "Blower", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "Blower", "STATUS": "OFF"}},
+            {"objnam": "C0012", "objtype": CIRCUIT_TYPE, "subtype": "INTELLI", "name": "POOL LIGHT", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "INTELLI", "SNAME": "POOL LIGHT", "STATUS": "OFF", "ACT": "BLUER", "USE": "BLUER"}},
+            {"objnam": "C0013", "objtype": CIRCUIT_TYPE, "subtype": "INTELLI", "name": "SPA LIGHT", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "INTELLI", "SNAME": "SPA LIGHT", "STATUS": "OFF", "ACT": "BLUER", "USE": "BLUER"}},
+            {"objnam": "C0014", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "Aux Relay 1", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "Aux Relay 1", "STATUS": "OFF"}},
+            {"objnam": "C0015", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "Aux Relay 2", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "Aux Relay 2", "STATUS": "OFF"}},
+            {"objnam": "C0016", "objtype": CIRCUIT_TYPE, "subtype": "LIGHT", "name": "Deck Jets Light", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "LIGHT", "SNAME": "Deck Jets Light", "STATUS": "OFF"}},
+            {"objnam": "C0017", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "East Firepit Burner", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "East Firepit Burner", "STATUS": "OFF"}},
+            {"objnam": "C0018", "objtype": CIRCUIT_TYPE, "subtype": "GENERIC", "name": "West Firepit Burner", "status": "OFF",
+             "attrs": {"OBJTYP": CIRCUIT_TYPE, "SUBTYP": "GENERIC", "SNAME": "West Firepit Burner", "STATUS": "OFF"}},
+            # Variable-Speed Pumps
+            {"objnam": "P1001", "objtype": PUMP_TYPE, "subtype": "VS", "name": "MAIN PUMP", "status": "4",
+             "attrs": {"OBJTYP": PUMP_TYPE, "SUBTYP": "VS", "SNAME": "MAIN PUMP", "STATUS": "4", "SPEED": "2200", "RPM": "2200", "GPM": "45", "PWR": "480", "SELECT": "RPM"}},
+            {"objnam": "P1002", "objtype": PUMP_TYPE, "subtype": "VS", "name": "FEATURES PUMP", "status": "4",
+             "attrs": {"OBJTYP": PUMP_TYPE, "SUBTYP": "VS", "SNAME": "FEATURES PUMP", "STATUS": "4", "SPEED": "2800", "RPM": "2800", "GPM": "62", "PWR": "860", "SELECT": "RPM"}},
+            # Pump Circuits
+            {"objnam": "PC101", "objtype": PMPCIRC_TYPE, "subtype": "PMPCIRC", "name": "MAIN PUMP", "status": "ON",
+             "attrs": {"OBJTYP": PMPCIRC_TYPE, "SUBTYP": "PMPCIRC", "SNAME": "MAIN PUMP", "STATUS": "ON", "SPEED": "2200", "SELECT": "RPM", "PARENT": "P1001"}},
+            {"objnam": "PC102", "objtype": PMPCIRC_TYPE, "subtype": "PMPCIRC", "name": "FEATURES PUMP", "status": "OFF",
+             "attrs": {"OBJTYP": PMPCIRC_TYPE, "SUBTYP": "PMPCIRC", "SNAME": "FEATURES PUMP", "STATUS": "OFF", "SPEED": "2800", "SELECT": "RPM", "PARENT": "P1002"}},
+            # Valves
+            {"objnam": "V1001", "objtype": VALVE_TYPE, "subtype": "VALVE", "name": "Pool/Spa Drain Valve", "status": "ON",
+             "attrs": {"OBJTYP": VALVE_TYPE, "SUBTYP": "VALVE", "SNAME": "Pool/Spa Drain Valve", "STATUS": "ON", "CIRCUIT": "POOL", "POSIT": "POOL"}},
+            {"objnam": "V1002", "objtype": VALVE_TYPE, "subtype": "VALVE", "name": "Pool/Spa Return Valve", "status": "ON",
+             "attrs": {"OBJTYP": VALVE_TYPE, "SUBTYP": "VALVE", "SNAME": "Pool/Spa Return Valve", "STATUS": "ON", "CIRCUIT": "POOL", "POSIT": "SPA"}},
+            {"objnam": "V1003", "objtype": VALVE_TYPE, "subtype": "VALVE", "name": "Solar Valve", "status": "OFF",
+             "attrs": {"OBJTYP": VALVE_TYPE, "SUBTYP": "VALVE", "SNAME": "Solar Valve", "STATUS": "OFF", "CIRCUIT": "SOLAR", "POSIT": "OFF"}},
+            {"objnam": "V1004", "objtype": VALVE_TYPE, "subtype": "VALVE", "name": "Water Feature 3-Way Valve", "status": "OFF",
+             "attrs": {"OBJTYP": VALVE_TYPE, "SUBTYP": "VALVE", "SNAME": "Water Feature 3-Way Valve", "STATUS": "OFF", "CIRCUIT": "FEATURES", "POSIT": "OFF"}},
+            # Heater
+            {"objnam": "H1001", "objtype": HEATER_TYPE, "subtype": "GAS", "name": "HEATER", "status": "OFF",
+             "attrs": {"OBJTYP": HEATER_TYPE, "SUBTYP": "GAS", "SNAME": "HEATER", "STATUS": "OFF", "MODE": "1", "LOTMP": "84", "BODY": "B1001"}},
+            # Chemistry
+            {"objnam": "CH101", "objtype": CHEM_TYPE, "subtype": "CHLOR", "name": "IntelliChlor SCG", "status": "ON",
+             "attrs": {"OBJTYP": CHEM_TYPE, "SUBTYP": "CHLOR", "SNAME": "IntelliChlor SCG", "STATUS": "ON", "SALT": "3200", "QUALTY": "GOOD"}},
+        ]
+
+        # Merge custom devices from config
+        for cd in self.config.get("custom_devices", []):
+            if not any(o.get("objnam") == cd.get("objnam") for o in objects):
+                objects.append(cd)
+
+        def pick(objtype):
+            return sorted(
+                (o for o in objects if o["objtype"] == objtype),
+                key=lambda o: ((o.get("name") or "").lower(), o.get("objnam")),
+            )
+
         return {
-            "system": None,
-            "objects": [],
-            "circuits": [],
-            "pumps": [],
-            "pump_circuits": [],
-            "bodies": [],
-            "heaters": [],
-            "chemistry": [],
-            "valves": [],
-            "updated": 0,
+            "system": {
+                "name": "IntelliCenter Pool",
+                "version": "1.064",
+                "metric": False,
+            },
+            "objects": objects,
+            "circuits": pick(CIRCUIT_TYPE),
+            "pumps": pick(PUMP_TYPE),
+            "pump_circuits": pick(PMPCIRC_TYPE),
+            "bodies": pick(BODY_TYPE),
+            "heaters": pick(HEATER_TYPE),
+            "chemistry": pick(CHEM_TYPE),
+            "valves": pick(VALVE_TYPE),
+            "updated": time.time(),
         }
 
     def _set_error(self, message: str | None) -> None:

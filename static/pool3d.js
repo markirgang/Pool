@@ -1150,6 +1150,24 @@
     var valves = state.valves || {};
     var drainSpa = valves.drain && valves.drain.spa !== undefined ? valves.drain.spa : 20;
     var retSpa = valves.return && valves.return.spa !== undefined ? valves.return.spa : 80;
+
+    if (valves.drain_valve && state.inventory && state.inventory.valves) {
+      for (var vi = 0; vi < state.inventory.valves.length; vi++) {
+        if (state.inventory.valves[vi].objnam === valves.drain_valve) {
+          drainSpa = (state.inventory.valves[vi].status === "ON") ? 80 : 20;
+          break;
+        }
+      }
+    }
+    if (valves.return_valve && state.inventory && state.inventory.valves) {
+      for (var vj = 0; vj < state.inventory.valves.length; vj++) {
+        if (state.inventory.valves[vj].objnam === valves.return_valve) {
+          retSpa = (state.inventory.valves[vj].status === "ON") ? 80 : 20;
+          break;
+        }
+      }
+    }
+
     valveDrain.handle.rotation.y = (drainSpa / 100) * Math.PI;
     valveReturn.handle.rotation.y = (retSpa / 100) * Math.PI;
 

@@ -64,6 +64,10 @@
     "heater": {
       "body": "POOL",
       "device": "HEATER"
+    },
+    "valves": {
+      "drain": "Pool/Spa Drain Valve",
+      "return": "Pool/Spa Return Valve"
     }
   },
   "defaults": {
@@ -132,5 +136,6 @@
     "browser": {
       "device": ""
     }
-  }
+  },
+  "custom_devices": []
 }

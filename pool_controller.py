@@ -158,6 +158,7 @@ class PoolController:
             data["light_effects"] = LIGHT_EFFECTS
             data["resolved"] = resolved
             data["inventory"] = {
+                "objects": inventory.get("objects", []),
                 "circuits": inventory.get("circuits", []),
                 "pumps": inventory.get("pumps", []),
                 "pump_circuits": inventory.get("pump_circuits", []),
@@ -246,6 +247,33 @@ class PoolController:
                 )
             if action == "system_off":
                 return self.system_off()
+            if action == "ic_set_device":
+                return self.ic_set_device(
+                    payload.get("objnam", ""),
+                    on=payload.get("on"),
+                    speed=payload.get("speed"),
+                    effect=payload.get("effect"),
+                    setpoint=payload.get("setpoint"),
+                    params=payload.get("params"),
+                )
+            if action == "ic_edit_device":
+                return self.ic_edit_device(
+                    payload.get("objnam", ""),
+                    name=payload.get("name"),
+                    subtype=payload.get("subtype"),
+                    params=payload.get("params"),
+                )
+            if action == "ic_add_device":
+                return self.ic_add_device(
+                    payload.get("objtype", "CIRCUIT"),
+                    name=payload.get("name", ""),
+                    subtype=payload.get("subtype", "GENERIC"),
+                    params=payload.get("params"),
+                )
+            if action == "ic_delete_device":
+                return self.ic_delete_device(payload.get("objnam", ""))
+            if action == "save_animation_mapping":
+                return self.save_animation_mapping(payload.get("devices") or {})
             if action == "refresh":
                 self._merge_panel_state()
                 return self._result(True, "State refreshed")
@@ -297,7 +325,164 @@ class PoolController:
             drain = {"pool": 80, "spa": 20}
             ret = {"spa": 80, "pool": 20}
             label = "Pool: pool drain open, spa return open"
-        return {"drain": drain, "return": ret, "label": label}
+        resolved = self.bridge.resolved()
+        valves = resolved.get("valves", {})
+        return {
+            "drain": drain,
+            "return": ret,
+            "label": label,
+            "drain_valve": valves.get("drain"),
+            "return_valve": valves.get("return"),
+        }
+
+    # ------------------------------------------------------------------
+    # IntelliCenter Device Control & Animation Mapping
+    # ------------------------------------------------------------------
+    def ic_set_device(
+        self,
+        objnam: str,
+        on: bool | None = None,
+        speed: int | None = None,
+        effect: str | None = None,
+        setpoint: int | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not objnam:
+            return self._result(False, "No device objnam specified")
+
+        ok, msg = self.bridge.set_device_state(
+            objnam, on=on, speed=speed, effect=effect, setpoint=setpoint, params=params
+        )
+
+        with self.lock:
+            resolved = self.bridge.resolved()
+
+            # Sync logical animation state if this device is mapped
+            # 1. Main pump
+            if objnam == resolved.get("pumps", {}).get("main"):
+                if on is not None:
+                    self.state_data["pumps"]["main"]["on"] = bool(on)
+                if speed is not None:
+                    self.state_data["pumps"]["main"]["rpm"] = max(450, min(3450, int(speed)))
+            elif objnam == resolved.get("pump_programs", {}).get("main"):
+                if speed is not None:
+                    self.state_data["pumps"]["main"]["rpm"] = max(450, min(3450, int(speed)))
+
+            # 2. Features pump
+            if objnam == resolved.get("pumps", {}).get("features"):
+                if on is not None:
+                    self.state_data["pumps"]["features"]["on"] = bool(on)
+                if speed is not None:
+                    self.state_data["pumps"]["features"]["rpm"] = max(450, min(3450, int(speed)))
+            elif objnam == resolved.get("pump_programs", {}).get("features"):
+                if speed is not None:
+                    self.state_data["pumps"]["features"]["rpm"] = max(450, min(3450, int(speed)))
+
+            # 3. Modes
+            if objnam == resolved.get("modes", {}).get("pool") and on:
+                self.state_data["mode"] = "pool"
+            elif objnam == resolved.get("modes", {}).get("spa") and on:
+                self.state_data["mode"] = "spa"
+
+            # 4. Blower
+            if objnam == (resolved.get("blower") or {}).get("circuit"):
+                if on is not None:
+                    self.state_data["blower"]["on"] = bool(on)
+
+            # 5. Lights
+            for body in ("pool", "spa"):
+                if objnam == resolved.get("lights", {}).get(body):
+                    if on is not None:
+                        self.state_data["lights"][body]["on"] = bool(on)
+                    if effect and str(effect).upper() in LIGHT_EFFECTS:
+                        self.state_data["lights"][body]["effect"] = str(effect).upper()
+
+            # 6. Heater
+            if objnam in (
+                (resolved.get("heater") or {}).get("device"),
+                (resolved.get("heater") or {}).get("body"),
+            ):
+                if on is not None:
+                    self.state_data["heater"]["on"] = bool(on)
+                if setpoint is not None:
+                    self.state_data["heater"]["setpoint"] = max(40, min(104, int(setpoint)))
+
+            # 7. Deck jets
+            for jet, spec in resolved.get("deck_jets", {}).items():
+                if objnam == spec.get("water") and on is not None:
+                    self.state_data["deck_jets"][jet]["on"] = bool(on)
+                if objnam == spec.get("light") and on is not None:
+                    self.state_data["deck_jets"][jet]["light"] = bool(on)
+                if objnam == spec.get("thumper") and on is not None:
+                    self.state_data["deck_jets"][jet]["thumper"] = bool(on)
+
+            # 8. Firebaskets
+            for basket, spec in resolved.get("firebaskets", {}).items():
+                if objnam == spec.get("water") and on is not None:
+                    self.state_data["firebaskets"][basket]["water"] = bool(on)
+                if objnam == spec.get("spa_water") and on is not None:
+                    self.state_data["firebaskets"][basket]["spa_water"] = bool(on)
+                if objnam == spec.get("burner") and on is not None:
+                    self.state_data["firebaskets"][basket]["on"] = bool(on)
+                self.state_data["firebaskets"][basket]["on"] = bool(
+                    self.state_data["firebaskets"][basket].get("on") or
+                    self.state_data["firebaskets"][basket].get("water") or
+                    self.state_data["firebaskets"][basket].get("spa_water")
+                )
+
+            # Ensure features pump runs if water features are on
+            if any(j["on"] for j in self.state_data["deck_jets"].values()) or any(
+                f.get("water") or f.get("spa_water") for f in self.state_data["firebaskets"].values()
+            ):
+                self.state_data["pumps"]["features"]["on"] = True
+
+        return self._result(ok, f"Device {objnam} set", msg)
+
+    def ic_edit_device(
+        self,
+        objnam: str,
+        name: str | None = None,
+        subtype: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not objnam:
+            return self._result(False, "No device objnam specified")
+        ok, msg = self.bridge.edit_device(objnam, name=name, subtype=subtype, params=params)
+        self.save_config(self.config)
+        self._merge_panel_state()
+        return self._result(ok, msg)
+
+    def ic_add_device(
+        self,
+        objtype: str,
+        name: str,
+        subtype: str = "GENERIC",
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        ok, msg, new_obj = self.bridge.add_device(objtype, name=name, subtype=subtype, params=params)
+        self.save_config(self.config)
+        self._merge_panel_state()
+        res = self._result(ok, msg)
+        res["device"] = new_obj
+        return res
+
+    def ic_delete_device(self, objnam: str) -> dict[str, Any]:
+        if not objnam:
+            return self._result(False, "No device objnam specified")
+        ok, msg = self.bridge.delete_device(objnam)
+        self.save_config(self.config)
+        self._merge_panel_state()
+        return self._result(ok, msg)
+
+    def save_animation_mapping(self, devices_mapping: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(devices_mapping, dict):
+            return self._result(False, "Invalid devices mapping format")
+        with self.lock:
+            self.config["devices"] = devices_mapping
+            self.save_config(self.config)
+            self.bridge.remap()
+            self._merge_panel_state()
+        return self._result(True, "Animation mapping saved successfully")
 
     # ------------------------------------------------------------------
     # Pumps
