@@ -2031,3 +2031,34 @@ select option { background: #09202c; color: var(--text); }
     border: 1px solid #d0d7de !important;
   }
 }
+
+
+/* Compact Tab Bar for Pool Controller */
+.tabs {
+    display: flex !important;
+    gap: 3px !important;
+    margin-bottom: 8px !important;
+    padding: 3px !important;
+    border: 1px solid var(--line, rgba(255,255,255,0.1)) !important;
+    border-radius: 8px !important;
+    background: rgba(7, 24, 35, 0.85) !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    align-items: center !important;
+}
+.tabs::-webkit-scrollbar {
+    display: none !important;
+}
+
+.tab {
+    flex: 0 0 auto !important;
+    padding: 4px 8px !important;
+    border-radius: 5px !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.01em !important;
+    white-space: nowrap !important;
+    transition: 0.15s !important;
+}
