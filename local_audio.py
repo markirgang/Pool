@@ -437,3 +437,151 @@ class LocalAudio:
                     except OSError:
                         pass
             self._speak_lock.release()
+
+
+def list_local_audio_inputs():
+    inputs = [{"id": "default", "label": "System Default Microphone", "default": True}]
+    seen = {"default"}
+    try:
+        status = subprocess.run(["wpctl", "status"], capture_output=True, text=True, timeout=4).stdout
+        in_audio = in_sources = False
+        for line in status.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Audio"):
+                in_audio = True
+                continue
+            if stripped.startswith("Video"):
+                in_audio = in_sources = False
+                continue
+            if in_audio and stripped.endswith("Sources:"):
+                in_sources = True
+                continue
+            if in_sources and stripped.endswith(("Filters:", "Streams:", "Sinks:")):
+                break
+            if not in_sources:
+                continue
+            clean = stripped.lstrip("│├└─ ").strip()
+            match = re.match(r"^\*?\s*(\d+)\.\s+(.+?)(?:\s+\[vol:[^\]]*\])?$", clean)
+            if not match:
+                continue
+            node_id, label = match.group(1), match.group(2).strip()
+            name = label
+            try:
+                info = subprocess.run(["wpctl", "inspect", node_id], capture_output=True, text=True, timeout=3).stdout
+                name_match = re.search(r'node\.name\s*=\s*"([^"]+)"', info)
+                if name_match:
+                    name = name_match.group(1)
+            except Exception:
+                pass
+            if name in seen:
+                continue
+            seen.add(name)
+            inputs.append({"id": name, "label": label, "default": clean.startswith("*")})
+    except Exception:
+        pass
+    if len(inputs) <= 1:
+        try:
+            result = subprocess.run(["arecord", "-l"], capture_output=True, text=True, timeout=4).stdout
+            for match in re.finditer(r"card\s+(\d+):\s+([^\[]+)\[([^\]]+)\],\s+device\s+(\d+):\s+([^\[]+)\[([^\]]+)\]", result):
+                card, card_name, card_desc, device, dev_name, dev_desc = match.groups()
+                hw_id = "hw:%s,%s" % (card, device)
+                if hw_id not in seen:
+                    seen.add(hw_id)
+                    inputs.append({"id": hw_id, "label": "%s %s - %s" % (card_name.strip(), card_desc.strip(), dev_desc.strip() or dev_name.strip()), "default": False})
+        except Exception:
+            pass
+    return inputs
+
+
+def list_local_audio_outputs():
+    outputs = [{"id": "default", "label": "System Default Speaker", "default": True}]
+    seen = {"default"}
+    try:
+        status = subprocess.run(["wpctl", "status"], capture_output=True, text=True, timeout=4).stdout
+        in_audio = in_sinks = False
+        for line in status.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Audio"):
+                in_audio = True
+                continue
+            if stripped.startswith("Video"):
+                in_audio = in_sinks = False
+                continue
+            if in_audio and stripped.endswith("Sinks:"):
+                in_sinks = True
+                continue
+            if in_sinks and stripped.endswith(("Sources:", "Filters:", "Streams:")):
+                break
+            if not in_sinks:
+                continue
+            clean = stripped.lstrip("│├└─ ").strip()
+            match = re.match(r"^\*?\s*(\d+)\.\s+(.+?)(?:\s+\[vol:[^\]]*\])?$", clean)
+            if not match:
+                continue
+            node_id, label = match.group(1), match.group(2).strip()
+            name = label
+            try:
+                info = subprocess.run(["wpctl", "inspect", node_id], capture_output=True, text=True, timeout=3).stdout
+                name_match = re.search(r'node\.name\s*=\s*"([^"]+)"', info)
+                if name_match:
+                    name = name_match.group(1)
+            except Exception:
+                pass
+            if name in seen:
+                continue
+            seen.add(name)
+            outputs.append({"id": name, "label": label, "default": clean.startswith("*")})
+    except Exception:
+        pass
+    return outputs
+
+
+def record_local_audio(duration=3.5, device="default"):
+    target = str(device or "").replace("local:", "", 1).strip()
+    if target in ("", "browser", "local"):
+        target = "default"
+    tmp_wav = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fh:
+            tmp_wav = fh.name
+        recorded = False
+        if shutil.which("pw-record") and target != "default" and not target.startswith("hw:"):
+            cmd = ["pw-record", "--rate", "16000", "--channels", "1"]
+            if target:
+                cmd += ["--target", target]
+            cmd.append(tmp_wav)
+            try:
+                proc = subprocess.Popen(cmd)
+                time.sleep(float(duration))
+                proc.send_signal(signal.SIGINT)
+                proc.wait(timeout=3)
+                if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 100:
+                    recorded = True
+            except Exception:
+                pass
+        if not recorded and shutil.which("arecord"):
+            dev_arg = target if target and target != "default" else "default"
+            if "PIXY" in dev_arg or "pixy" in dev_arg.lower():
+                dev_arg = "dsnoop:CARD=PIXY,DEV=0"
+            cmd = ["arecord", "-q", "-d", str(max(1, int(duration))), "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "wav"]
+            if dev_arg:
+                cmd += ["-D", dev_arg]
+            cmd.append(tmp_wav)
+            try:
+                subprocess.run(cmd, timeout=duration + 3)
+                if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 100:
+                    recorded = True
+            except Exception:
+                pass
+        if recorded and os.path.isfile(tmp_wav):
+            with open(tmp_wav, "rb") as fh:
+                return fh.read()
+    except Exception:
+        pass
+    finally:
+        if tmp_wav and os.path.isfile(tmp_wav):
+            try:
+                os.remove(tmp_wav)
+            except Exception:
+                pass
+    return None

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from ai_engine import call_ai
 
 try:
     from google import genai
@@ -43,6 +44,7 @@ _TOOL_ACTIONS = {
     "pool_set_pump": "set_pump",
     "pool_get_status": "status",
     "pool_system_off": "system_off",
+    "pool_open_host_page": "open_host_page",
 }
 
 _EFFECTS = sorted(LIGHT_EFFECTS.keys())
@@ -104,7 +106,8 @@ _RULES = (
     "available). Use the tools to make changes. If the user asks for several things, call one "
     "tool at a time. Never invent equipment that is not available. If a command "
     "cannot be applied because the panel is offline, say it was applied in "
-    "simulation mode."
+    "simulation mode. When asked to open the IntelliCenter host page or web panel, "
+    "call the pool_open_host_page tool."
 )
 
 
@@ -265,6 +268,19 @@ class GeminiPoolBridge:
                     description="Turn off water features, lights, heater and both pumps.",
                     parameters=types.Schema(type=types.Type.OBJECT, properties={}),
                 ),
+                types.FunctionDeclaration(
+                    name="pool_open_host_page",
+                    description="Open the Pentair IntelliCenter web host page in a browser.",
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "launch": types.Schema(
+                                type=types.Type.BOOLEAN,
+                                description="Whether to launch a browser directly on the host system.",
+                            ),
+                        },
+                    ),
+                ),
             ])
         ]
 
@@ -273,9 +289,11 @@ class GeminiPoolBridge:
                                assistant: dict | None = None,
                                image_bytes: bytes | None = None,
                                image_mime: str = "image/jpeg",
-                               provider: str = "google") -> dict[str, Any]:
+                               provider: str = "google",
+                               model: str = "",
+                               ollama_url: str = "") -> dict[str, Any]:
         return self._generate(api_key, prompt, None, None, pool_state, assistant,
-                              False, image_bytes, image_mime, provider)
+                              False, image_bytes, image_mime, provider, model, ollama_url)
 
     def generate_voice_chat_response(self, api_key: str, audio_bytes: bytes | None,
                                      mime_type: str = "audio/webm",
@@ -284,9 +302,11 @@ class GeminiPoolBridge:
                                      local: bool = False,
                                      image_bytes: bytes | None = None,
                                      image_mime: str = "image/jpeg",
-                                     provider: str = "google") -> dict[str, Any]:
+                                     provider: str = "google",
+                                     model: str = "",
+                                     ollama_url: str = "") -> dict[str, Any]:
         return self._generate(api_key, "", audio_bytes, mime_type, pool_state,
-                              assistant, local, image_bytes, image_mime, provider)
+                              assistant, local, image_bytes, image_mime, provider, model, ollama_url)
 
     def _generate(self, api_key: str, prompt: str, audio_bytes: bytes | None,
                   mime_type: str | None, pool_state: dict | None,
@@ -294,27 +314,9 @@ class GeminiPoolBridge:
                   local: bool = False,
                   image_bytes: bytes | None = None,
                   image_mime: str = "image/jpeg",
-                  provider: str = "google") -> dict[str, Any]:
-        if not GENAI_AVAILABLE:
-            return {"text": "google-genai is not installed on the server.", "action": None}
-        if not api_key:
-            return {
-                "text": "Add an OpenCode API key in Hardware settings to talk to the pool.",
-                "action": None,
-            }
-
-        if provider in OPENCODE_BASE_URLS:
-            client = genai.Client(
-                api_key=api_key,
-                http_options=types.HttpOptions(
-                    base_url=OPENCODE_BASE_URLS[provider],
-                    headers={"Authorization": "Bearer " + api_key},
-                ),
-            )
-        else:
-            provider = "google"
-            client = genai.Client(api_key=api_key)
-        model = OPENCODE_MODELS.get(provider, MODEL)
+                  provider: str = "google",
+                  model: str = "",
+                  ollama_url: str = "") -> dict[str, Any]:
         contents = []
         if image_bytes:
             contents.append(
@@ -348,38 +350,29 @@ class GeminiPoolBridge:
             tools=self._tools(),
             temperature=0.4,
         )
-        try:
-            response = client.models.generate_content(
-                model=model, contents=contents, config=config
-            )
-            text = response.text or ""
-            transcription = ""
-            if "TRANSCRIPTION:" in text:
-                head, _, tail = text.partition("RESPONSE:")
-                transcription = head.replace("TRANSCRIPTION:", "").strip()
-                text = tail.strip() if tail else text
-            action = None
-            if response.function_calls:
-                call = response.function_calls[0]
-                action = self._action_for(call.name, dict(call.args or {}))
-                if not text:
-                    text = "Done."
-            return {
-                "text": text or "Done.",
-                "transcription": transcription,
-                "action": action,
-            }
-        except Exception as exc:
-            message = str(exc)
-            lowered = message.lower()
-            if "402" in message or "credits are depleted" in lowered or "resource_exhausted" in lowered:
-                if provider in OPENCODE_BASE_URLS:
-                    message = "My OpenCode key is out of credits. Add credits or use a free model."
-                else:
-                    message = "My Google AI key is out of credits. Add Google AI Studio billing or use an OpenCode Go key."
-            else:
-                message = "AI error: %s" % message
-            return {"text": message, "action": None}
+        ai_res = call_ai(
+            api_key=api_key,
+            contents=contents,
+            config=config,
+            provider=provider,
+            model=model,
+            ollama_url=ollama_url,
+        )
+        text = ai_res.get("text") or ""
+        transcription = ""
+        if "TRANSCRIPTION:" in text:
+            head, _, tail = text.partition("RESPONSE:")
+            transcription = head.replace("TRANSCRIPTION:", "").strip()
+            text = tail.strip() if tail else text
+        action = None
+        if ai_res.get("action"):
+            call_action = ai_res["action"]
+            action = self._action_for(call_action.get("name"), dict(call_action.get("args") or {}))
+        return {
+            "text": text or "Done.",
+            "transcription": transcription,
+            "action": action,
+        }
 
     def _action_for(self, name: str, args: dict[str, Any]) -> dict[str, Any] | None:
         action = _TOOL_ACTIONS.get(name)
@@ -431,6 +424,8 @@ class GeminiPoolBridge:
                 "on": args.get("on"),
                 "rpm": args.get("rpm"),
             }
+        elif action == "open_host_page":
+            payload = {"launch": bool(args.get("launch", False))}
         else:
             payload = {}
         return {"action": action, "payload": payload}

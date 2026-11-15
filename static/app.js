@@ -172,6 +172,13 @@
         renderIntelliCenter();
       }
     }
+
+    if (window.panel3d) {
+      window.panel3d.update(state, icData ? icData.inventory : state.inventory);
+    }
+    if ($("view-panel") && $("view-panel").classList.contains("active")) {
+      loadIntelliCenter3D();
+    }
   }
 
   function temp(value) {
@@ -570,6 +577,9 @@
       ? (result.applied.ok ? "Applied: " + (result.applied.message || "done") : "Applied in simulation")
       : "Iggy answered";
     if (result.at) lastAssistantAt = result.at;
+    if (result.action && result.action.action === "open_host_page") {
+      openIntelliCenterHost();
+    }
     speak(result.text || "Done.", result.audio_b64, result.audio_mime);
   }
 
@@ -1632,6 +1642,182 @@
     }
   }
 
+  window.controlDevice = controlDevice;
+
+  function loadIntelliCenter3D() {
+    if (!state) return;
+    var conn = state.connection || {};
+    var isOnline = !!conn.connected;
+    var inv = (icData && icData.inventory) || state.inventory || {};
+    var objects = inv.objects || [];
+    var bodies = state.bodies || {};
+
+    if ($("p3dNetChip")) {
+      $("p3dNetChip").textContent = isOnline ? "ONLINE" : "SIMULATION";
+      $("p3dNetChip").className = "chip " + (isOnline ? "live" : "simulation");
+    }
+    if ($("p3dTransport")) {
+      $("p3dTransport").textContent = (conn.transport ? conn.transport.toUpperCase() : "TCP") + " (Port " + (conn.port || 6681) + ")";
+    }
+    if ($("p3dHost")) {
+      $("p3dHost").textContent = conn.host ? conn.host : "127.0.0.1 (Local)";
+    }
+    var p3dUrl = getIntelliCenterWebUrl();
+    if ($("p3dHostLink")) {
+      if (p3dUrl) {
+        $("p3dHostLink").href = p3dUrl;
+        $("p3dHostLink").style.display = "inline-flex";
+      } else {
+        $("p3dHostLink").style.display = "none";
+      }
+    }
+    if ($("p3dConnMsg")) {
+      $("p3dConnMsg").textContent = isOnline ? "Connected & Synchronized" : "Local Digital Twin Active";
+    }
+    if ($("p3dPoolTemp")) {
+      $("p3dPoolTemp").textContent = temp(bodies.pool && bodies.pool.temp);
+    }
+    if ($("p3dSpaTemp")) {
+      $("p3dSpaTemp").textContent = temp(bodies.spa && bodies.spa.temp);
+    }
+    var salt = state.chemistry && state.chemistry.salt;
+    if ($("p3dSaltLevel")) {
+      $("p3dSaltLevel").textContent = salt ? salt + " ppm (Normal)" : "3200 ppm (Configured)";
+    }
+
+    if ($("p3dMatrixCount")) {
+      $("p3dMatrixCount").textContent = objects.length + " Devices";
+    }
+
+    var matrixBody = $("p3dMatrixBody");
+    if (matrixBody) {
+      matrixBody.innerHTML = objects.map(function (obj, idx) {
+        var isOn = (obj.status === "ON" || obj.status === "10" || obj.status === "HEAT" || obj.status === "2");
+        var objtype = obj.objtype || "CIRCUIT";
+        var isPump = (objtype === "PUMP" || objtype === "PMPCIRC");
+        var portLabel = "RELAY " + (idx + 1);
+        if (objtype === "VALVE") portLabel = "VALVE " + String.fromCharCode(65 + (idx % 4));
+        else if (isPump) portLabel = "COM1 (PUMP)";
+        else if (objtype === "HEATER") portLabel = "FIREMAN SW";
+        else if (objtype === "BODY") portLabel = "BODY SENSOR";
+
+        var stateDisplay = isOn ? "ON" : "OFF";
+        if (isPump && isOn) {
+          stateDisplay = ((obj.attrs && (obj.attrs.SPEED || obj.attrs.RPM)) || "Running") + " RPM";
+        }
+
+        return '<tr>' +
+          '<td><span class="relay-tag">' + escapeHtml(portLabel) + '</span></td>' +
+          '<td><strong>' + escapeHtml(obj.name) + '</strong></td>' +
+          '<td><span class="muted">' + escapeHtml(obj.objtype) + ' / ' + escapeHtml(obj.subtype || 'GENERIC') + '</span></td>' +
+          '<td><code>' + escapeHtml(obj.objnam) + '</code></td>' +
+          '<td><span class="status-indicator ' + (isOn ? 'on' : 'off') + '">' +
+          '<span class="status-dot ' + (isOn ? '' : 'off') + '"></span> ' + escapeHtml(stateDisplay) +
+          '</span></td>' +
+          '<td><button class="btn small ' + (isOn ? 'danger' : 'primary') + ' p3d-matrix-toggle" data-objnam="' + escapeHtml(obj.objnam) + '" data-on="' + (isOn ? '0' : '1') + '">' +
+          (isOn ? 'Turn Off' : 'Turn On') + '</button></td>' +
+          '</tr>';
+      }).join("");
+    }
+
+    if (window.panel3d) {
+      window.panel3d.update(state, inv);
+    }
+  }
+
+  function getIntelliCenterWebUrl() {
+    if (icData && icData.connection && icData.connection.web_url) {
+      return icData.connection.web_url;
+    }
+    if (state && state.connection && state.connection.web_url) {
+      return state.connection.web_url;
+    }
+    var host = "";
+    if (icData && icData.connection && icData.connection.host) {
+      host = icData.connection.host;
+    } else if (state && state.connection && state.connection.host) {
+      host = state.connection.host;
+    } else if (config && config.intellicenter && config.intellicenter.host) {
+      host = config.intellicenter.host;
+    } else if ($("icHost") && $("icHost").value.trim()) {
+      host = $("icHost").value.trim();
+    }
+    if (!host) return "";
+    if (/^https?:\/\//i.test(host)) return host;
+    return "http://" + host;
+  }
+
+  async function openIntelliCenterHost() {
+    var url = getIntelliCenterWebUrl();
+    if (!url) {
+      try {
+        var res = await api("/api/intellicenter/open");
+        if (res && res.url) {
+          url = res.url;
+        }
+      } catch (err) {}
+    }
+
+    if (!url) {
+      var custom = prompt(
+        "No IntelliCenter host IP is currently configured or detected via mDNS.\n" +
+        "Enter the Pentair IntelliCenter IP address or hostname to open:",
+        "192.168.1.50"
+      );
+      if (custom && custom.trim()) {
+        var clean = custom.trim();
+        url = /^https?:\/\//i.test(clean) ? clean : "http://" + clean;
+        if ($("icHost")) $("icHost").value = clean;
+      } else {
+        toast("IntelliCenter host address unknown. Configure host in Hardware tab.", "error");
+        return;
+      }
+    }
+
+    toast("Opening IntelliCenter host page: " + url, "good");
+    try {
+      api("/api/intellicenter/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ launch: false })
+      }).catch(function () {});
+    } catch (e) {}
+
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function setVizInfoPosition(pos) {
+    var valid = ["below", "above", "side"];
+    if (valid.indexOf(pos) === -1) pos = "below";
+    var info = $("vizInfo");
+    var layout = $("vizBodyLayout");
+    if (!info) return;
+
+    var targetSlot = $("vizInfoSlotBelow");
+    if (pos === "above") targetSlot = $("vizInfoSlotAbove");
+    else if (pos === "side") targetSlot = $("vizInfoSlotSide");
+
+    if (targetSlot && info.parentElement !== targetSlot) {
+      targetSlot.appendChild(info);
+    }
+
+    if (layout) {
+      layout.classList.toggle("side", pos === "side");
+    }
+
+    document.querySelectorAll(".pos-pill").forEach(function (pill) {
+      pill.classList.toggle("active", pill.getAttribute("data-pos") === pos);
+    });
+
+    localStorage.setItem("pool.vizInfoPos", pos);
+
+    if (window.pool3d && typeof window.pool3d.resize === "function") {
+      setTimeout(window.pool3d.resize, 50);
+    } else {
+      window.dispatchEvent(new Event("resize"));
+    }
+  }
+
   async function loadIntelliCenter() {
     try {
       var data = await api("/api/intellicenter/devices");
@@ -1657,6 +1843,15 @@
     }
     if ($("icEndpointText")) {
       $("icEndpointText").textContent = conn.host ? (conn.host + ":" + (conn.port || 6681) + " (" + (conn.transport || "tcp") + ")") : "Simulation (local baseline)";
+    }
+    var webUrl = getIntelliCenterWebUrl();
+    if ($("icEndpointLink")) {
+      if (webUrl) {
+        $("icEndpointLink").href = webUrl;
+        $("icEndpointLink").style.display = "inline-flex";
+      } else {
+        $("icEndpointLink").style.display = "none";
+      }
     }
     if ($("icDeviceCount")) {
       $("icDeviceCount").textContent = objects.length;
@@ -2037,6 +2232,14 @@
     if (!found) return;
     if (wanted === "intellicenter") {
       loadIntelliCenter();
+    } else if (wanted === "panel") {
+      loadIntelliCenter3D();
+      if (window.panel3d) {
+        setTimeout(function () {
+          window.panel3d.init();
+          window.panel3d.update(state, icData ? icData.inventory : null);
+        }, 50);
+      }
     } else if (wanted === "alexa") {
       loadAlexa();
     } else if (wanted === "setup") {
@@ -2059,6 +2262,13 @@
       activateTab((location.hash || "#control").slice(1));
     });
     activateTab((location.hash || "#control").slice(1));
+
+    document.querySelectorAll(".pos-pill").forEach(function (pill) {
+      pill.addEventListener("click", function () {
+        setVizInfoPosition(pill.getAttribute("data-pos"));
+      });
+    });
+    setVizInfoPosition(localStorage.getItem("pool.vizInfoPos") || "below");
 
     $("modePool").addEventListener("click", function () {
       command("set_mode", { mode: "pool" });
@@ -2192,6 +2402,7 @@
     $("saveAlexa").addEventListener("click", saveAlexaSettings);
     if ($("refreshAlexaBtn")) $("refreshAlexaBtn").addEventListener("click", loadAlexa);
     $("refreshInventory").addEventListener("click", refreshInventory);
+    if ($("setupOpenHostBtn")) $("setupOpenHostBtn").addEventListener("click", openIntelliCenterHost);
     $("saveKey").addEventListener("click", function () {
       var key = $("voiceKey").value.trim();
       if (!key) { toast("Enter an API key first", "error"); return; }
@@ -2315,6 +2526,10 @@
         icSearchQuery = e.target.value;
         renderIntelliCenter();
       });
+    }
+
+    if ($("icOpenHostBtn")) {
+      $("icOpenHostBtn").addEventListener("click", openIntelliCenterHost);
     }
 
     if ($("icRefreshBtn")) {
@@ -2492,6 +2707,52 @@
             });
           }
           return;
+        }
+      });
+    }
+
+    // Manual tab print actions
+    if ($("printManualBtnTop")) {
+      $("printManualBtnTop").addEventListener("click", function () { window.print(); });
+    }
+    if ($("printManualBtnBottom")) {
+      $("printManualBtnBottom").addEventListener("click", function () { window.print(); });
+    }
+    if ($("manualScrollTopBtn")) {
+      $("manualScrollTopBtn").addEventListener("click", function () {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+
+    // IntelliCenter 3D Panel controls
+    if ($("p3dOpenHostBtn")) {
+      $("p3dOpenHostBtn").addEventListener("click", openIntelliCenterHost);
+    }
+    if ($("p3dToggleDoorBtn")) {
+      $("p3dToggleDoorBtn").addEventListener("click", function () {
+        if (window.panel3d) window.panel3d.toggleDoor();
+      });
+    }
+    if ($("p3dResetCamBtn")) {
+      $("p3dResetCamBtn").addEventListener("click", function () {
+        if (window.panel3d) window.panel3d.focus("cabinet");
+      });
+    }
+    document.querySelectorAll(".p3d-cam-preset").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var preset = btn.getAttribute("data-preset");
+        if (window.panel3d) window.panel3d.focus(preset);
+      });
+    });
+
+    var p3dMatrixTable = $("p3dMatrixBody");
+    if (p3dMatrixTable) {
+      p3dMatrixTable.addEventListener("click", function (e) {
+        var btn = e.target.closest(".p3d-matrix-toggle");
+        if (btn) {
+          var objnam = btn.getAttribute("data-objnam");
+          var turnOn = btn.getAttribute("data-on") === "1";
+          controlDevice(objnam, turnOn);
         }
       });
     }

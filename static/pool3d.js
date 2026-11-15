@@ -1382,6 +1382,7 @@
 
   window.pool3d = {
     update: update,
+    resize: resize,
     setTalking: function (on) {
       if (iguana) iguana.targetTalk = on ? 1 : 0;
     },

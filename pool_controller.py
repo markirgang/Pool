@@ -274,6 +274,10 @@ class PoolController:
                 return self.ic_delete_device(payload.get("objnam", ""))
             if action == "save_animation_mapping":
                 return self.save_animation_mapping(payload.get("devices") or {})
+            if action in ("open_host_page", "open_intellicenter", "open_host"):
+                return self.open_host_page(
+                    launch_browser=bool(payload.get("launch") or payload.get("browser"))
+                )
             if action == "refresh":
                 self._merge_panel_state()
                 return self._result(True, "State refreshed")
@@ -483,6 +487,29 @@ class PoolController:
             self.bridge.remap()
             self._merge_panel_state()
         return self._result(True, "Animation mapping saved successfully")
+
+    def open_host_page(self, launch_browser: bool = False) -> dict[str, Any]:
+        """Resolve and optionally open the IntelliCenter host web page."""
+        url = getattr(self.bridge, "web_url", "")
+        if not url:
+            host = (self.config.get("intellicenter", {}).get("host") or "").strip()
+            if host:
+                url = host if host.startswith(("http://", "https://")) else f"http://{host}"
+        if not url:
+            return self._result(False, "IntelliCenter host is not configured or discovered yet")
+
+        launched = False
+        if launch_browser:
+            try:
+                import webbrowser
+                launched = bool(webbrowser.open(url))
+            except Exception as exc:
+                LOG.warning("Could not launch browser on host: %s", exc)
+
+        res = self._result(True, f"IntelliCenter host page: {url}")
+        res["url"] = url
+        res["launched"] = launched
+        return res
 
     # ------------------------------------------------------------------
     # Pumps

@@ -33,10 +33,13 @@
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="control">Control</button>
         <button class="tab" data-tab="intellicenter">IntelliCenter</button>
+        <button class="tab" data-tab="panel">IntelliCenter 3D</button>
         <button class="tab" data-tab="schedule">Schedule</button>
         <button class="tab" data-tab="voice">Voice</button>
         <button class="tab" data-tab="alexa">Alexa</button>
         <button class="tab" data-tab="setup">Hardware</button>
+        <button class="tab" data-tab="install">Pi Install</button>
+        <button class="tab" data-tab="manual">Manual</button>
       </nav>
 
       <!-- CONTROL -->
@@ -486,6 +489,7 @@
           <div class="row-actions">
             <button class="btn primary" id="saveSettings">Save &amp; Reconnect</button>
             <button class="btn small ghost" id="refreshInventory">Refresh Inventory</button>
+            <button class="btn small ghost" id="setupOpenHostBtn" title="Open the Pentair IntelliCenter host web page in a browser">🌐 Open Host Page</button>
           </div>
           <div class="conn-detail" id="icAddress">Panel: --</div>
           <div class="conn-detail" id="connStatus">Not connected</div>
@@ -500,6 +504,10 @@
           </div>
           <div class="conn-detail" id="piAddress">Checking Raspberry Pi address...</div>
           <div class="form-grid">
+            <label>AI Model (OpenCode Go, Gemini, Ollama)
+              <select id="selectModel" class="select"></select>
+              <div id="aiModelHint" style="font-size:0.75rem; color:var(--cyan); margin-top:4px;"></div>
+            </label>
             <label>API Key Type
               <select id="selectApiKeyType" class="select">
                 <option value="opencode-go">OpenCode Go API Key</option>
@@ -539,6 +547,7 @@
               <p class="muted">Live valves, circuits, relays, pumps, lights, and water features on the local IntelliCenter. Turn devices on/off, change speeds and effects, edit or add equipment, and map detected devices to the 3D pool animation.</p>
             </div>
             <div class="head-actions">
+              <button class="btn small ghost" id="icOpenHostBtn" title="Open the Pentair IntelliCenter host web page in a browser">🌐 Open Host Page</button>
               <button class="btn small" id="icRefreshBtn">Refresh Panel</button>
               <button class="btn primary small" id="icOpenAddModalBtn">+ Add Device</button>
             </div>
@@ -551,7 +560,10 @@
             </div>
             <div class="ic-status-item">
               <span class="stat-label">Panel Endpoint</span>
-              <span class="stat-value small-value" id="icEndpointText">--</span>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="stat-value small-value" id="icEndpointText">--</span>
+                <a id="icEndpointLink" class="ic-host-link" target="_blank" rel="noopener noreferrer" style="display:none;" title="Open IntelliCenter host page in a browser">🌐 Open ↗</a>
+              </div>
             </div>
             <div class="ic-status-item">
               <span class="stat-label">Total Devices</span>
@@ -614,6 +626,156 @@
         </section>
       </div>
 
+      <!-- INTELLICENTER 3D ANIMATION TAB -->
+      <div class="view" id="view-panel">
+        <section class="card hero-card">
+          <div class="card-head">
+            <div>
+              <h2>IntelliCenter Hardware &amp; Controlled Devices Animation</h2>
+              <p class="muted">Interactive 3D digital twin of the Pentair IntelliCenter load center. Visualizes the physical motherboard circuitry, active relays with illuminated contacts, motorized valve actuators, RS-485 bus communications, live touchscreen LCD, and real-time network/hardware diagnostics.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn small ghost" id="p3dOpenHostBtn" title="Open the Pentair IntelliCenter host web page in a browser">🌐 Open Host Page</button>
+              <button class="btn small" id="p3dToggleDoorBtn">🚪 Open Door</button>
+              <button class="btn small ghost" id="p3dResetCamBtn">Reset View</button>
+            </div>
+          </div>
+
+          <!-- Camera Preset Navigation Pills -->
+          <div class="p3d-preset-bar">
+            <span class="p3d-preset-title">Camera Presets:</span>
+            <button class="btn small ghost p3d-cam-preset" data-preset="cabinet">Full Cabinet</button>
+            <button class="btn small ghost p3d-cam-preset" data-preset="screen">Touchscreen LCD</button>
+            <button class="btn small ghost p3d-cam-preset" data-preset="motherboard">Motherboard &amp; Relays</button>
+            <button class="btn small ghost p3d-cam-preset" data-preset="valves">Valves &amp; Comms</button>
+          </div>
+
+          <!-- 3D Canvas Viewport -->
+          <div class="panel3d-stage-wrap">
+            <div class="panel3d-status-overlay">
+              <span class="chip" id="p3dConnBadge">CONNECTING...</span>
+              <span class="chip" id="p3dDoorBadge">DOOR CLOSED</span>
+              <span class="chip" id="p3dActiveRelaysBadge">RELAYS: --</span>
+            </div>
+            <canvas id="panelCanvas"></canvas>
+            <div class="panel3d-hint">Drag to orbit &middot; scroll to zoom &middot; click door, relays or buttons</div>
+          </div>
+        </section>
+
+        <!-- Network & Hardware Diagnostics Cards -->
+        <div class="p3d-diag-grid">
+          <!-- Network Status -->
+          <section class="card p3d-diag-card">
+            <div class="card-head">
+              <div>
+                <h3>Network &amp; Protocol Status</h3>
+                <p class="muted">IntelliCenter connection link &amp; packet metrics.</p>
+              </div>
+              <span class="chip live" id="p3dNetChip">ONLINE</span>
+            </div>
+            <div class="p3d-metrics-list">
+              <div class="p3d-metric-row">
+                <span>Protocol Transport</span>
+                <b id="p3dTransport">TCP (Port 6681)</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>Panel Endpoint Host</span>
+                <span style="display:flex; align-items:center; gap:8px;">
+                  <b id="p3dHost">--</b>
+                  <a id="p3dHostLink" class="ic-host-link" target="_blank" rel="noopener noreferrer" style="display:none;" title="Open IntelliCenter host page in a browser">🌐 Open ↗</a>
+                </span>
+              </div>
+              <div class="p3d-metric-row">
+                <span>mDNS Property Name</span>
+                <b id="p3dPropName">Lighthouse Pool</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>Engine / Library</span>
+                <b>pyintellicenter v0.3.2</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>Link Latency</span>
+                <b id="p3dLatency" class="stat-good">~12 ms</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>Connection State</span>
+                <b id="p3dConnMsg">Connected &amp; Synchronized</b>
+              </div>
+            </div>
+          </section>
+
+          <!-- Motherboard & Hardware Status -->
+          <section class="card p3d-diag-card">
+            <div class="card-head">
+              <div>
+                <h3>Motherboard &amp; Hardware Status</h3>
+                <p class="muted">Sensors, comms bus, and equipment interfaces.</p>
+              </div>
+              <span class="chip" id="p3dRevChip">REV D &middot; i8PS</span>
+            </div>
+            <div class="p3d-metrics-list">
+              <div class="p3d-metric-row">
+                <span>System Firmware Version</span>
+                <b id="p3dFwVer">v1.064</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>Pool Water Temperature</span>
+                <b id="p3dPoolTemp">--</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>Spa Water Temperature</span>
+                <b id="p3dSpaTemp">--</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>Ambient Air Temperature</span>
+                <b id="p3dAirTemp">78&deg;F</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>RS-485 COM1 (Pumps Bus)</span>
+                <b class="stat-good" id="p3dCom1">Active (19200 baud)</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>RS-485 COM2 (Salt Cell Bus)</span>
+                <b class="stat-good" id="p3dCom2">Active (9600 baud)</b>
+              </div>
+              <div class="p3d-metric-row">
+                <span>IntelliChlor Salt Level</span>
+                <b id="p3dSaltLevel">--</b>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Controlled Devices Live Matrix -->
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h3>Controlled Devices Live Matrix</h3>
+              <p class="muted">Live status of circuits, high-voltage relays, pump channels, and valve actuators. Click any toggle to control the device directly.</p>
+            </div>
+            <span class="chip" id="p3dMatrixCount">0 Devices</span>
+          </div>
+
+          <div class="p3d-matrix-table-wrap">
+            <table class="manual-table p3d-matrix-table">
+              <thead>
+                <tr>
+                  <th>Relay / Port</th>
+                  <th>Device Name</th>
+                  <th>Type &amp; Subtype</th>
+                  <th>ID</th>
+                  <th>State / Value</th>
+                  <th>Quick Action</th>
+                </tr>
+              </thead>
+              <tbody id="p3dMatrixBody">
+                <!-- Populated dynamically by app.js / panel3d.js -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
       <!-- ALEXA SKILLS TAB -->
       <div class="view" id="view-alexa">
         <section class="card">
@@ -669,6 +831,1353 @@
           </div>
         </section>
       </div>
+
+      <!-- INSTRUCTION MANUAL TAB -->
+      <div class="view" id="view-manual">
+        <!-- Manual Hero Banner -->
+        <section class="card hero-card manual-hero">
+          <div class="card-head">
+            <div>
+              <h2>Lighthouse Pool Operations &amp; Technical Manual</h2>
+              <p class="muted">Authoritative reference guide for Pentair IntelliCenter control, Three.js digital twin animation mapping, variable-speed pump hydraulics, Gemini voice/vision assistant, Alexa Smart Home v3 integration, and Raspberry Pi system administration.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn primary small" id="printManualBtnTop">🖨️ Print to PDF</button>
+            </div>
+          </div>
+          <div class="manual-quick-meta">
+            <span class="chip live">DOCUMENTATION REV 2.4</span>
+            <span class="chip">PENTAIR INTELLICENTER i8PS / i10PS</span>
+            <span class="chip">PROTOCOL v1.064</span>
+            <span class="chip">THREE.JS DIGITAL TWIN</span>
+            <span class="chip">RASPBERRY PI EDITION</span>
+          </div>
+
+          <!-- Quick Jump Table of Contents -->
+          <div class="manual-toc">
+            <strong>Table of Contents &amp; Quick Navigation:</strong>
+            <div class="toc-links">
+              <a href="#man-sec1" class="toc-chip">1. Architecture &amp; Dual-Mode</a>
+              <a href="#man-sec2" class="toc-chip">2. Hydraulics &amp; Modes</a>
+              <a href="#man-sec3" class="toc-chip">3. Equipment &amp; Relays</a>
+              <a href="#man-sec4" class="toc-chip">4. 3D Animation Mapping</a>
+              <a href="#man-sec5" class="toc-chip">5. Pump Schedules</a>
+              <a href="#man-sec6" class="toc-chip">6. Voice Assistant &amp; Iggy</a>
+              <a href="#man-sec7" class="toc-chip">7. Alexa Smart Home v3</a>
+              <a href="#man-sec8" class="toc-chip">8. Raspberry Pi Setup</a>
+              <a href="#man-sec9" class="toc-chip">9. Protocol &amp; REST APIs</a>
+              <a href="#man-sec10" class="toc-chip">10. Diagnostic Matrix</a>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 1: System Overview, Architecture & Topology -->
+        <section class="card manual-card" id="man-sec1">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">01</span>
+            <div>
+              <h3>System Architecture, Topology &amp; Dual-Mode Operation</h3>
+              <p class="muted">Hardware interconnects, communication layers, and fault-tolerant architecture.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>The Lighthouse Pool automation platform coordinates physical pool equipment, low-voltage communication buses, high-voltage relays, and cloud services into a unified, responsive interface. Designed for continuous headless operation on a Raspberry Pi, the system acts as a reliable intermediary between the local pool equipment pad and web/voice clients.</p>
+
+            <div class="manual-grid-2">
+              <div class="manual-box">
+                <h4>Communication Layer Architecture</h4>
+                <ul>
+                  <li><strong>Local Protocol Bridge:</strong> Connects to Pentair IntelliCenter over native TCP socket (Port 6681) or WebSocket (Port 6680) via <code>pyintellicenter</code>.</li>
+                  <li><strong>mDNS Zero-Configuration:</strong> Broadcasts multicast DNS discovery requests (<code>_intellicenter._tcp.local</code>) to identify panel IP and port dynamically without requiring static IP DHCP reservations.</li>
+                  <li><strong>Keepalive Heartbeats:</strong> Sends non-blocking ping requests every 90 seconds. If socket drops or panel reboots, a backoff auto-reconnect cycle restores state seamlessly.</li>
+                  <li><strong>Bidirectional Synchronization:</strong> Listens for asynchronous <code>NotifyList</code> telemetry frames, updating temperatures, water flow, salt salinity, and relay states within milliseconds.</li>
+                </ul>
+              </div>
+              <div class="manual-box">
+                <h4>Dual-Mode Execution Model</h4>
+                <ul>
+                  <li><strong>Panel Synchronized Mode:</strong> Engaged whenever the IntelliCenter motherboard is reachable over the local network. Commands write directly to the panel via <code>SETPARAMLIST</code>, and telemetry mirrors hardware readings.</li>
+                  <li><strong>Simulation Digital Twin Mode:</strong> When the physical panel is unreachable (network maintenance or winterization), the system falls back to a high-fidelity local simulation model. All UI switches, schedules, 3D animations, and voice assistants remain fully interactive.</li>
+                  <li><strong>Zero-Downtime Transition:</strong> When the panel reconnects, the system reconciles hardware state automatically and pushes configured defaults.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Subsystem</th>
+                    <th>Transport / Hardware Interface</th>
+                    <th>Port / Protocol</th>
+                    <th>Failover Mechanism</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>IntelliCenter Load Center</strong></td>
+                    <td>10/100 Ethernet (RJ-45) or 2.4GHz WiFi</td>
+                    <td>TCP 6681 / WS 6680 (JSON-RPC)</td>
+                    <td>Autonomous internal panel scheduler continues offline</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Local Pool Web Server</strong></td>
+                    <td>Raspberry Pi 4 / 5 (Raspberry Pi OS)</td>
+                    <td>HTTP Port 2490 (REST + Static SPA)</td>
+                    <td>systemd watchdog with auto-restart in 4 seconds</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Public Remote Tunnel</strong></td>
+                    <td>Cloudflare Tunnel Daemon (<code>cloudflared</code>)</td>
+                    <td>Encrypted outbound QUIC/HTTPS tunnel</td>
+                    <td>Encrypted edge failover to pool.shobots.party</td>
+                  </tr>
+                  <tr>
+                    <td><strong>IntelliFlo VSR Pumps</strong></td>
+                    <td>RS-485 Serial Communications (COM1)</td>
+                    <td>19,200 Baud, 8-N-1 (Half-Duplex)</td>
+                    <td>Pumps drop to standalone internal schedule if comms fail</td>
+                  </tr>
+                  <tr>
+                    <td><strong>IntelliChlor SCG</strong></td>
+                    <td>RS-485 Serial Communications (COM2)</td>
+                    <td>9,600 Baud, 8-N-1 (Half-Duplex)</td>
+                    <td>Power pack internal thermal/flow switch safety loop</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Gemini AI Voice Engine</strong></td>
+                    <td>Outbound TLS REST API</td>
+                    <td>HTTPS Port 443 (Google Generative AI)</td>
+                    <td>Graceful fallback to standard UI and rule-based commands</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 2: Hydraulics & Operating Modes -->
+        <section class="card manual-card" id="man-sec2">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">02</span>
+            <div>
+              <h3>Hydraulics, Water Body Modes &amp; Safety Controls</h3>
+              <p class="muted">Water circulation loops, motorized valve actuation, and emergency shutdown procedures.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>The facility features a dual-body shared equipment configuration where a single filtration and heating system serves both the primary pool basin and the elevated perimeter-overflow spa. Motorized 24VAC 3-way valve actuators control hydraulic routing.</p>
+
+            <div class="manual-grid-2">
+              <div class="manual-box">
+                <h4>Pool Mode Hydraulics (Normal Filtration)</h4>
+                <p>Designed for daily filtration, surface skimming, and water feature presentation:</p>
+                <ul>
+                  <li><strong>Suction Actuator (Intake):</strong> Rotates to draw 80% water from the main pool drain/skimmers and 20% from the spa drain.</li>
+                  <li><strong>Return Actuator (Discharge):</strong> Rotates to deliver 80% discharge water into the spa return jets, with 20% to pool returns.</li>
+                  <li><strong>Spillway Overflow:</strong> The net positive return to the spa causes clean, filtered water to continuously spill over the decorative weirs into the pool basin, creating a natural aeration cascade.</li>
+                  <li><strong>Default RPM:</strong> 2200 RPM (~45 GPM) providing 2.4 complete water turnovers per day at 480 Watts consumption.</li>
+                </ul>
+              </div>
+              <div class="manual-box">
+                <h4>Spa Mode Hydraulics (Hydrotherapy &amp; Rapid Heating)</h4>
+                <p>Isolates the spa basin for elevated temperature retention and jet velocity:</p>
+                <ul>
+                  <li><strong>Suction Actuator (Intake):</strong> Rotates to draw 80% water directly from the spa bottom drain, minimizing heat loss to the cold pool.</li>
+                  <li><strong>Return Actuator (Discharge):</strong> Directs 80% heated water back to the spa hydrotherapy return manifold.</li>
+                  <li><strong>Thermostat Activation:</strong> Automatically engages the pool gas heater with a target setpoint of 102°F.</li>
+                  <li><strong>Pump Dynamics:</strong> Main VSR pump ramps up to circulate the isolated spa volume through the heat exchanger.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="manual-callout info">
+              <strong>Actuator Cam Timing &amp; Valve Safety:</strong> Pentair Compool / CVA-24 motorized actuators take approximately 24 seconds to complete a 180° rotation. The IntelliCenter firmware incorporates an automatic soft-delay when toggling modes to prevent hydraulic line hammering and cavity cavitation.
+            </div>
+
+            <h4 style="margin-top: 16px;">Safety Shutdown: "All Off" Emergency Interlock</h4>
+            <p>Clicking the red <strong>All Off</strong> button in the application header or saying <em>"Turn off everything"</em> executes an immediate emergency equipment sequence:</p>
+            <ol>
+              <li>De-energizes the gas heater ignition circuit (opening the fireman's switch).</li>
+              <li>De-energizes high-voltage relays for all water features (deck jets, firepit spillways, blower).</li>
+              <li>Switches off underwater pool and spa LED illuminators.</li>
+              <li>Ramps down and stops both variable-speed pumps (Main VSR and Features VSR).</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- Section 3: Equipment, Relays & Circuit Controls -->
+        <section class="card manual-card" id="man-sec3">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">03</span>
+            <div>
+              <h3>IntelliCenter Equipment, Relays &amp; Circuit Controls</h3>
+              <p class="muted">Comprehensive reference for all controlled loads, relay assignments, and operational parameters.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>All connected hardware is managed through the <strong>IntelliCenter</strong> tab. Each card exposes real-time state, speed sliders, effect pickers, and edit controls.</p>
+
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Equipment Name</th>
+                    <th>Type / Subtype</th>
+                    <th>Default ID</th>
+                    <th>Relay / Bus Channel</th>
+                    <th>Operational Parameters</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Pool Mode Circuit</strong></td>
+                    <td>CIRCUIT / GENERIC</td>
+                    <td><code>C0001</code></td>
+                    <td>Internal Mode Logic</td>
+                    <td>Sets suction/return valves to Pool circulation; starts Main Pump.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Spa Mode Circuit</strong></td>
+                    <td>CIRCUIT / GENERIC</td>
+                    <td><code>C0002</code></td>
+                    <td>Internal Mode Logic</td>
+                    <td>Isolates spa suction/return; engages heater thermostat to 102°F.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Main Circulation VSR</strong></td>
+                    <td>PUMP / VS</td>
+                    <td><code>P1001</code></td>
+                    <td>RS-485 COM1 (Addr 1)</td>
+                    <td>Pentair IntelliFlo VSF. Speed range: 450–3450 RPM (Default: 2200 RPM).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Features VSR Pump</strong></td>
+                    <td>PUMP / VS</td>
+                    <td><code>P1002</code></td>
+                    <td>RS-485 COM1 (Addr 2)</td>
+                    <td>Dedicated water features pump. Starts automatically with any feature (Default: 2800 RPM).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>NE Floor Jet</strong></td>
+                    <td>CIRCUIT / MAGIC2</td>
+                    <td><code>C0003</code></td>
+                    <td>Relay 3 (Aux 2)</td>
+                    <td>Northeast laminar deck jet. Activates water arc, LED illumination, and thumper.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>NW Floor Jet</strong></td>
+                    <td>CIRCUIT / MAGIC2</td>
+                    <td><code>C0004</code></td>
+                    <td>Relay 4 (Aux 3)</td>
+                    <td>Northwest laminar deck jet. Arc water stream across pool basin.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>SE Floor Jet</strong></td>
+                    <td>CIRCUIT / MAGIC2</td>
+                    <td><code>C0005</code></td>
+                    <td>Relay 5 (Aux 4)</td>
+                    <td>Southeast laminar deck jet. Parallel trajectory arc.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>SW Floor Jet</strong></td>
+                    <td>CIRCUIT / MAGIC2</td>
+                    <td><code>C0006</code></td>
+                    <td>Relay 6 (Aux 5)</td>
+                    <td>Southwest laminar deck jet. Full water arc presentation.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>East Firepit Pool Spillway</strong></td>
+                    <td>CIRCUIT / GENERIC</td>
+                    <td><code>C0007</code></td>
+                    <td>Relay 7 (Aux 6)</td>
+                    <td>East architectural firebasket weir flow discharging into primary pool.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>East Firepit Spa Spillway</strong></td>
+                    <td>CIRCUIT / GENERIC</td>
+                    <td><code>C0008</code></td>
+                    <td>Relay 8 (Aux 7)</td>
+                    <td>East architectural firebasket weir flow discharging into spa.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>West Firepit Pool Spillway</strong></td>
+                    <td>CIRCUIT / GENERIC</td>
+                    <td><code>C0009</code></td>
+                    <td>Relay 9 (Aux 8)</td>
+                    <td>West architectural firebasket weir flow discharging into primary pool.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>West Firepit Spa Spillway</strong></td>
+                    <td>CIRCUIT / GENERIC</td>
+                    <td><code>C0010</code></td>
+                    <td>Relay 10 (Aux 9)</td>
+                    <td>West architectural firebasket weir flow discharging into spa.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Spa Air Blower</strong></td>
+                    <td>CIRCUIT / GENERIC</td>
+                    <td><code>C0011</code></td>
+                    <td>Relay 11 (Aux 10)</td>
+                    <td>2.0 HP air injector blower for hydrotherapy bubbling and foam generation.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pool Underwater LED</strong></td>
+                    <td>CIRCUIT / INTELLI</td>
+                    <td><code>C0012</code></td>
+                    <td>Relay 1 (Aux 1)</td>
+                    <td>Pentair IntelliBrite 5G color LED. 12 color programs &amp; fixed hues.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Spa Underwater LED</strong></td>
+                    <td>CIRCUIT / INTELLI</td>
+                    <td><code>C0013</code></td>
+                    <td>Relay 2 (Light)</td>
+                    <td>Pentair GloBrite / IntelliBrite compact color LED for spa basin.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Gas Pool Heater</strong></td>
+                    <td>HEATER / GAS</td>
+                    <td><code>H1001</code></td>
+                    <td>Fireman Switch Terminal</td>
+                    <td>Pentair MasterTemp 400K BTU gas heater. Thermostat range: 40°F–104°F.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>IntelliChlor SCG</strong></td>
+                    <td>CHEM / CHLOR</td>
+                    <td><code>CH101</code></td>
+                    <td>RS-485 COM2</td>
+                    <td>Salt Chlorine Generator cell. Real-time PPM monitoring and output % control.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pool/Spa Drain Valve</strong></td>
+                    <td>VALVE / VALVE</td>
+                    <td><code>V1001</code></td>
+                    <td>Valve Socket A</td>
+                    <td>Intake 3-way motorized actuator (Compool CVA-24).</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pool/Spa Return Valve</strong></td>
+                    <td>VALVE / VALVE</td>
+                    <td><code>V1002</code></td>
+                    <td>Valve Socket B</td>
+                    <td>Return 3-way motorized actuator (Compool CVA-24).</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h4 style="margin-top: 14px;">Adding &amp; Editing Custom Equipment</h4>
+            <ul>
+              <li><strong>Adding New Devices:</strong> Click <strong>+ Add Device</strong> on the IntelliCenter tab. Select the equipment type (<code>CIRCUIT</code>, <code>VALVE</code>, <code>PUMP</code>, <code>HEATER</code>), enter a friendly name, select the hardware subtype, and specify assigned auxiliary ports. New equipment is assigned a unique identifier (e.g. <code>C0100</code>) and saved to <code>config.json</code>.</li>
+              <li><strong>Editing Existing Devices:</strong> Click <strong>Edit</strong> on any equipment card to modify its friendly name (<code>SNAME</code>) or equipment subtype (<code>SUBTYP</code>). In connected panel mode, updates write directly to the IntelliCenter via <code>SETPARAMLIST</code>.</li>
+              <li><strong>Deleting Devices:</strong> Custom user-added devices feature a red <strong>Delete</strong> button to remove the object and unbind any animation slots.</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- Section 4: 3D Digital Twin & Animation Mapping -->
+        <section class="card manual-card" id="man-sec4">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">04</span>
+            <div>
+              <h3>3D Digital Twin &amp; Real-Time Animation Mapping</h3>
+              <p class="muted">Physics-based WebGL rendering and procedural device binding.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>The application features two interconnected 3D visualizations powered by Three.js:</p>
+            <ol>
+              <li><strong>Pool &amp; Spa Digital Twin (<code>pool3d.js</code>):</strong> Renders water wave displacement shaders, dynamic laminar jet parabolic arcs, firebasket flame particles, underwater lighting caustic glows, and rotating motorized valve handles.</li>
+              <li><strong>IntelliCenter Load Center Animation (<code>panel3d.js</code>):</strong> Renders the metallic enclosure, swiveling cabinet door, live LCD screen, green motherboard circuitry, glowing relay contact LEDs, and blinking serial comms indicators.</li>
+            </ol>
+
+            <h4 style="margin-top: 14px;">How Animation Device Mapping Works</h4>
+            <p>Rather than hardcoding 3D visuals to fixed circuits, the application uses a dynamic mapping table. Every 3D visual role can be linked to any detected IntelliCenter object:</p>
+
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Visual Role</th>
+                    <th>Target Object Type</th>
+                    <th>Visual Behavior When Active</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>modes.pool</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Rotates drain valve to 80% pool; rotates return to 80% spa; activates weir waterfall.</td>
+                  </tr>
+                  <tr>
+                    <td><code>modes.spa</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Rotates drain valve to spa; rotates return to pool; highlights heated spa water.</td>
+                  </tr>
+                  <tr>
+                    <td><code>pumps.main</code></td>
+                    <td>PUMP</td>
+                    <td>Ramps primary pump motor vibration and pad LED indicator; drives pool surface ripple waves.</td>
+                  </tr>
+                  <tr>
+                    <td><code>pumps.features</code></td>
+                    <td>PUMP</td>
+                    <td>Energizes secondary pump pad motor; provides water pressure to all active features.</td>
+                  </tr>
+                  <tr>
+                    <td><code>deck_jets.[ne|nw|se|sw].water</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Generates a physics-based parabolic water stream arc from the deck into the pool basin.</td>
+                  </tr>
+                  <tr>
+                    <td><code>deck_jets.[ne|nw|se|sw].light</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Illuminates the laminar water tube with colored light using internal reflection.</td>
+                  </tr>
+                  <tr>
+                    <td><code>deck_jets.[ne|nw|se|sw].thumper</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Simulates solenoid thumper pulse bursts, creating rhythmic droplets along the stream.</td>
+                  </tr>
+                  <tr>
+                    <td><code>firebaskets.[east|west].burner</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Ignites procedural flickering flame meshes, glowing embers, and dynamic fire light glow.</td>
+                  </tr>
+                  <tr>
+                    <td><code>firebaskets.[east|west].water</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Discharges a smooth sheet of animated spillway water over the weir into the pool basin.</td>
+                  </tr>
+                  <tr>
+                    <td><code>blower.circuit</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Spawns thousands of rising bubbles and surface foam churn inside the spa hydrotherapy basin.</td>
+                  </tr>
+                  <tr>
+                    <td><code>lights.pool</code> / <code>lights.spa</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Illuminates the pool and spa water basin with the active Pentair color effect (Blue, Red, Party, etc.).</td>
+                  </tr>
+                  <tr>
+                    <td><code>valves.drain</code> / <code>valves.return</code></td>
+                    <td>VALVE</td>
+                    <td>Physically rotates the 3D motorized Compool actuator handles on the equipment pad.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="manual-callout good">
+              <strong>Auto-Detect &amp; Map Feature:</strong> Clicking <strong>Auto-Detect &amp; Map</strong> on the IntelliCenter tab executes an automated token scanner that analyzes all detected panel names (e.g. "NE Floor Jet", "Spa Blower", "Pool Light") and pre-fills all 3D slots with the best matches. Click <strong>Save Animation Mappings</strong> to persist to <code>config.json</code>.
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 5: Pump Schedules -->
+        <section class="card manual-card" id="man-sec5">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">05</span>
+            <div>
+              <h3>Variable-Speed Pump Scheduling Engine</h3>
+              <p class="muted">Configuring automated filtration windows, pump affinity curves, and freeze protection.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Variable-speed pumps consume significantly less electrical energy at lower speeds due to the Pump Affinity Laws (Power scales with the cube of speed: $\text{Power} \propto \text{RPM}^3$). Running a pump at 1725 RPM consumes only 12.5% of the power required at 3450 RPM.</p>
+
+            <div class="manual-box">
+              <h4>Scheduling Engine Operation</h4>
+              <ul>
+                <li><strong>Local Timezone Evaluation:</strong> The background controller thread evaluates schedule rules every 10 seconds against the local timezone (<code>America/New_York</code>).</li>
+                <li><strong>Multi-Window Filtration:</strong> Add discrete runs for specific days of the week, defining start time (<code>HH:MM</code>), stop time (<code>HH:MM</code>), and target RPM.</li>
+                <li><strong>Midnight Wrap-Around:</strong> Runs spanning midnight (e.g. 20:00 to 04:00) are handled gracefully without interruption.</li>
+                <li><strong>Manual Override Priority:</strong> If a user manually changes pump speed or mode during an active schedule window, the manual override remains in effect until the next scheduled transition.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 6: Voice Assistant & Iggy -->
+        <section class="card manual-card" id="man-sec6">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">06</span>
+            <div>
+              <h3>Voice Assistant ("Talk to the Pool") &amp; Iggy the Iguana</h3>
+              <p class="muted">Natural language understanding, multimodal vision, and personality tuning.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Iggy is an integrated AI assistant powered by Google Gemini (<code>gemini-2.5-flash</code>). Iggy understands natural pool commands, reports water temperature, and controls circuits through structured function calling.</p>
+
+            <div class="manual-grid-2">
+              <div class="manual-box">
+                <h4>Audio Pipeline &amp; VU Meter</h4>
+                <ul>
+                  <li><strong>Local Hardware Mic:</strong> Uses ALSA to capture audio from the USB webcam microphone connected directly to the Raspberry Pi.</li>
+                  <li><strong>Voice Activity Detection (VAD):</strong> Monitors live audio RMS levels. When speech exceeds the configured threshold (default 650 RMS) for over 350ms, recording begins automatically.</li>
+                  <li><strong>Silence Detection:</strong> 900ms of consecutive silence marks the end of speech, triggering Gemini transcription.</li>
+                  <li><strong>Speech Output:</strong> Generates natural voice responses using Google Text-to-Speech (<code>gTTS</code>) and outputs audio over the local HDMI speaker.</li>
+                </ul>
+              </div>
+              <div class="manual-box">
+                <h4>Iggy Personalities</h4>
+                <ul>
+                  <li><strong>Classic:</strong> Friendly, helpful poolside assistant with a light Florida accent.</li>
+                  <li><strong>Surfer:</strong> Laid-back, sun-soaked enthusiast who loves waves, swells, and relaxation.</li>
+                  <li><strong>British Butler:</strong> Formal, courteous estate manager ensuring impeccable pool etiquette.</li>
+                  <li><strong>Pirate:</strong> Swashbuckling captain treating the pool as the open seas.</li>
+                  <li><strong>Deadpan:</strong> Dry, witty, slightly sarcastic observer of pool life.</li>
+                  <li><strong>Custom:</strong> Enter custom prompt instructions in the Voice tab.</li>
+                </ul>
+              </div>
+            </div>
+
+            <h4 style="margin-top: 14px;">Voice Command Reference Dictionary</h4>
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Voice Utterance Example</th>
+                    <th>Parsed Action</th>
+                    <th>Subsystems Activated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><em>"Turn on the pool light and make it blue"</em></td>
+                    <td><code>set_light</code> (pool, on=True, effect=BLUER)</td>
+                    <td>Pool light relay energized; color program synced.</td>
+                  </tr>
+                  <tr>
+                    <td><em>"Start the NE floor jet and east firepit spillway"</em></td>
+                    <td><code>set_deck_jet</code> &amp; <code>set_firebasket</code></td>
+                    <td>Relays 3 &amp; 7 energized; Features pump started at 2800 RPM.</td>
+                  </tr>
+                  <tr>
+                    <td><em>"Switch to spa mode and heat to 102 degrees"</em></td>
+                    <td><code>set_mode</code> (spa) &amp; <code>set_heater</code> (102)</td>
+                    <td>Actuators rotated to spa; heater fireman switch closed.</td>
+                  </tr>
+                  <tr>
+                    <td><em>"Set main pump to 2400 RPM"</em></td>
+                    <td><code>set_pump</code> (main, rpm=2400)</td>
+                    <td>RS-485 packet dispatched to IntelliFlo motor drive.</td>
+                  </tr>
+                  <tr>
+                    <td><em>"Turn off all water features"</em></td>
+                    <td><code>set_all_features</code> (on=False)</td>
+                    <td>Deck jets, firebaskets, blower de-energized; Features pump stopped.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h4 style="margin-top: 14px;">Multimodal Camera Vision ("Iggy's Eyes")</h4>
+            <p>Clicking <strong>Iggy, Look</strong> captures a high-resolution frame from the poolside webcam via <code>ffmpeg</code> and submits the image alongside a prompt to Gemini Vision. Iggy can inspect water clarity, check if anyone is swimming, detect pool toys, or inspect equipment pad pressure gauges.</p>
+          </div>
+        </section>
+
+        <!-- Section 7: Alexa Smart Home Integration -->
+        <section class="card manual-card" id="man-sec7">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">07</span>
+            <div>
+              <h3>Amazon Alexa Smart Home v3 Skill Integration</h3>
+              <p class="muted">Controlling your pool using Amazon Echo and the Alexa Smart Home API.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>The application implements an Alexa Smart Home v3 directive endpoint at <code>https://pool.shobots.party/alexa</code>. All discovered circuits, water features, pumps, and thermostats are exposed as native Alexa devices.</p>
+
+            <div class="manual-box">
+              <h4>AWS Lambda Smart Home Forwarder</h4>
+              <p>Create an AWS Lambda function running Python 3.12 with the Alexa Smart Home trigger, forwarding directives to your endpoint:</p>
+              <pre class="manual-code"><code>import json, urllib.request
+
+ENDPOINT_URL = "https://pool.shobots.party/alexa"
+BEARER_TOKEN = "YOUR_ALEXA_BEARER_TOKEN"
+
+def lambda_handler(event, context):
+    req = urllib.request.Request(
+        ENDPOINT_URL,
+        data=json.dumps(event).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {BEARER_TOKEN}"
+        }
+    )
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))</code></pre>
+            </div>
+
+            <h4 style="margin-top: 14px;">Alexa Discovery Endpoints &amp; Categories</h4>
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Alexa Friendly Name</th>
+                    <th>Category</th>
+                    <th>Supported Interfaces</th>
+                    <th>Sample Voice Commands</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Pool Mode</strong></td>
+                    <td>SWITCH</td>
+                    <td>Alexa.PowerController</td>
+                    <td><em>"Alexa, turn on Pool Mode"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Spa Mode</strong></td>
+                    <td>SWITCH</td>
+                    <td>Alexa.PowerController</td>
+                    <td><em>"Alexa, turn on Spa Mode"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pool Light</strong></td>
+                    <td>LIGHT</td>
+                    <td>Alexa.PowerController, Alexa.ColorController</td>
+                    <td><em>"Alexa, turn on Pool Light"</em> / <em>"Alexa, set Pool Light to blue"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Spa Light</strong></td>
+                    <td>LIGHT</td>
+                    <td>Alexa.PowerController, Alexa.ColorController</td>
+                    <td><em>"Alexa, turn on Spa Light"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pool Heater</strong></td>
+                    <td>THERMOSTAT</td>
+                    <td>Alexa.ThermostatController</td>
+                    <td><em>"Alexa, set Pool Heater to 86 degrees"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Main VSR Pump</strong></td>
+                    <td>SWITCH</td>
+                    <td>Alexa.PowerController, Alexa.RangeController</td>
+                    <td><em>"Alexa, turn on Main Pump"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>NE Floor Jet</strong></td>
+                    <td>SWITCH</td>
+                    <td>Alexa.PowerController</td>
+                    <td><em>"Alexa, turn on Northeast Floor Jet"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>East Firepit Spillway</strong></td>
+                    <td>SWITCH</td>
+                    <td>Alexa.PowerController</td>
+                    <td><em>"Alexa, turn on East Firepit Spillway"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Spa Blower</strong></td>
+                    <td>SWITCH</td>
+                    <td>Alexa.PowerController</td>
+                    <td><em>"Alexa, turn on Spa Blower"</em></td>
+                  </tr>
+                  <tr>
+                    <td><strong>All Features</strong></td>
+                    <td>SWITCH</td>
+                    <td>Alexa.PowerController</td>
+                    <td><em>"Alexa, turn off All Features"</em></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 8: Raspberry Pi Setup & Service -->
+        <section class="card manual-card" id="man-sec8">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">08</span>
+            <div>
+              <h3>Raspberry Pi Setup, Security &amp; Service Commissioning</h3>
+              <p class="muted">Complete deployment procedure from clean OS installation to background daemon.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <h4>Step 1: Install System Packages</h4>
+            <pre class="manual-code"><code>sudo apt update &amp;&amp; sudo apt install -y git python3 python3-pip ffmpeg alsa-utils curl
+sudo usermod -aG audio,video $USER</code></pre>
+
+            <h4 style="margin-top: 14px;">Step 2: Clone Repository &amp; Install Python Libraries</h4>
+            <pre class="manual-code"><code>mkdir -p ~/projects &amp;&amp; cd ~/projects
+git clone https://github.com/markirgang/Pool.git
+cd Pool
+pip install --break-system-packages -r requirements.txt</code></pre>
+
+            <h4 style="margin-top: 14px;">Step 3: Configure systemd User Service</h4>
+            <p>Create a persistent systemd service ensuring the pool controller starts on boot and restarts if an error occurs:</p>
+            <pre class="manual-code"><code>mkdir -p ~/.config/systemd/user
+cat &lt;&lt; 'EOF' &gt; ~/.config/systemd/user/pool.service
+[Unit]
+Description=Lighthouse Pool IntelliCenter Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/Pool
+ExecStart=/usr/bin/python3 server.py --port 2490 --host 0.0.0.0
+Restart=always
+RestartSec=4s
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now pool.service
+loginctl enable-linger $USER</code></pre>
+
+            <h4 style="margin-top: 14px;">Step 4: Cloudflare Tunnel for Public Access</h4>
+            <p>Install and authenticate <code>cloudflared</code> to route public traffic securely without port forwarding:</p>
+            <pre class="manual-code"><code>curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
+sudo dpkg -i cloudflared.deb
+cloudflared tunnel route dns shobots pool.shobots.party</code></pre>
+          </div>
+        </section>
+
+        <!-- Section 9: Protocol & Developer API Reference -->
+        <section class="card manual-card" id="man-sec9">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">09</span>
+            <div>
+              <h3>Protocol &amp; Developer REST API Reference</h3>
+              <p class="muted">Technical specification for local HTTP endpoints and Pentair IntelliCenter command payloads.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <h4>HTTP REST API Endpoints</h4>
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>Payload Example</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>GET</code></td>
+                    <td><code>/api/state</code></td>
+                    <td>None</td>
+                    <td>Returns full telemetry snapshot: temperatures, pump RPMs, modes, active features, schedule, and hardware inventory.</td>
+                  </tr>
+                  <tr>
+                    <td><code>GET</code></td>
+                    <td><code>/api/intellicenter/devices</code></td>
+                    <td>None</td>
+                    <td>Returns all detected panel objects, categorized circuits, pumps, valves, and active animation mapping.</td>
+                  </tr>
+                  <tr>
+                    <td><code>POST</code></td>
+                    <td><code>/api/intellicenter/device/control</code></td>
+                    <td><code>{"objnam": "C0003", "on": true, "speed": 2400}</code></td>
+                    <td>Turns any device on/off or sets target speed/effect/setpoint. Writes to panel and updates 3D animation.</td>
+                  </tr>
+                  <tr>
+                    <td><code>POST</code></td>
+                    <td><code>/api/intellicenter/device/edit</code></td>
+                    <td><code>{"objnam": "C0003", "name": "Deck Jet NE", "subtype": "MAGIC2"}</code></td>
+                    <td>Modifies friendly name (<code>SNAME</code>) or equipment subtype on panel and local storage.</td>
+                  </tr>
+                  <tr>
+                    <td><code>POST</code></td>
+                    <td><code>/api/intellicenter/device/add</code></td>
+                    <td><code>{"objtype": "CIRCUIT", "name": "Aux Light", "subtype": "LIGHT"}</code></td>
+                    <td>Creates a new hardware object, allocates an ID, and registers it in the panel model.</td>
+                  </tr>
+                  <tr>
+                    <td><code>POST</code></td>
+                    <td><code>/api/intellicenter/device/delete</code></td>
+                    <td><code>{"objnam": "C0100"}</code></td>
+                    <td>Deletes a custom equipment entry and removes it from panel inventory.</td>
+                  </tr>
+                  <tr>
+                    <td><code>POST</code></td>
+                    <td><code>/api/intellicenter/mapping</code></td>
+                    <td><code>{"devices": { ... }}</code></td>
+                    <td>Updates visual 3D animation bindings and re-resolves names against live panel model.</td>
+                  </tr>
+                  <tr>
+                    <td><code>GET / POST</code></td>
+                    <td><code>/api/intellicenter/open</code></td>
+                    <td><code>{"launch": false}</code></td>
+                    <td>Resolves the IntelliCenter host web page URL and optionally launches a browser.</td>
+                  </tr>
+                  <tr>
+                    <td><code>GET</code></td>
+                    <td><code>/intellicenter/host</code></td>
+                    <td>None</td>
+                    <td>HTTP 307 redirect directly to the IntelliCenter panel host page in your browser.</td>
+                  </tr>
+                  <tr>
+                    <td><code>POST</code></td>
+                    <td><code>/api/command</code></td>
+                    <td><code>{"action": "set_mode", "payload": {"mode": "spa"}}</code></td>
+                    <td>High-level equipment command dispatcher.</td>
+                  </tr>
+                  <tr>
+                    <td><code>POST</code></td>
+                    <td><code>/alexa</code></td>
+                    <td>Alexa Smart Home v3 Directive JSON</td>
+                    <td>Processes Smart Home directives and returns success/error events.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h4 style="margin-top: 14px;">Pentair IntelliCenter Protocol Parameter Keys</h4>
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Type</th>
+                    <th>Valid Values</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>STATUS</code></td>
+                    <td>String</td>
+                    <td><code>"ON"</code>, <code>"OFF"</code>, <code>"10"</code> (Run), <code>"4"</code> (Off)</td>
+                    <td>Circuit or pump operational power state.</td>
+                  </tr>
+                  <tr>
+                    <td><code>SNAME</code></td>
+                    <td>String</td>
+                    <td>Up to 16 alphanumeric characters</td>
+                    <td>User-friendly name displayed on the touchscreen panel.</td>
+                  </tr>
+                  <tr>
+                    <td><code>SUBTYP</code></td>
+                    <td>String</td>
+                    <td><code>"GENERIC"</code>, <code>"MAGIC2"</code>, <code>"INTELLI"</code>, <code>"GLOW"</code>, <code>"VS"</code></td>
+                    <td>Hardware subtype governing behavior and color palettes.</td>
+                  </tr>
+                  <tr>
+                    <td><code>SPEED</code> / <code>RPM</code></td>
+                    <td>String</td>
+                    <td><code>"450"</code> to <code>"3450"</code></td>
+                    <td>Target rotational velocity for variable-speed pumps.</td>
+                  </tr>
+                  <tr>
+                    <td><code>ACT</code> / <code>USE</code></td>
+                    <td>String</td>
+                    <td><code>"PARTY"</code>, <code>"ROMAN"</code>, <code>"CARIB"</code>, <code>"BLUER"</code>, etc.</td>
+                    <td>Active color show or fixed color hue for underwater LEDs.</td>
+                  </tr>
+                  <tr>
+                    <td><code>LOTMP</code></td>
+                    <td>String</td>
+                    <td><code>"40"</code> to <code>"104"</code></td>
+                    <td>Thermostat temperature setpoint in degrees Fahrenheit.</td>
+                  </tr>
+                  <tr>
+                    <td><code>MODE</code></td>
+                    <td>String</td>
+                    <td><code>"1"</code> (Off), <code>"2"</code> (Heater), <code>"3"</code> (Solar)</td>
+                    <td>Heater operational mode for active water body.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 10: Diagnostic & Troubleshooting Matrix -->
+        <section class="card manual-card" id="man-sec10">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">10</span>
+            <div>
+              <h3>Diagnostic &amp; Troubleshooting Matrix</h3>
+              <p class="muted">Systematic diagnostic procedures for resolving network, hardware, audio, and visual issues.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Observed Symptom</th>
+                    <th>Likely Root Cause</th>
+                    <th>Diagnostic Check</th>
+                    <th>Resolution Procedure</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>App displays "SIMULATION MODE"</strong></td>
+                    <td>IntelliCenter IP unreachable or mDNS multicast blocked by router.</td>
+                    <td>Check Hardware tab; run <code>ping &lt;panel-ip&gt;</code> from Pi.</td>
+                    <td>Enter static IP in Hardware tab, check port 6681, or verify panel is powered on.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Main pump does not respond</strong></td>
+                    <td>RS-485 serial communication cable loose or baud rate mismatch.</td>
+                    <td>Inspect COM1 blinking LED on 3D panel or physical motherboard.</td>
+                    <td>Verify green/yellow RS-485 wires on COM1 port; ensure pump address is set to 1.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Water feature activates but no water flows</strong></td>
+                    <td>Features VSR pump is de-energized or suction valve closed.</td>
+                    <td>Check Features VSR card; verify RPM is set to at least 2600.</td>
+                    <td>The system starts the Features pump automatically; check strainer basket for debris.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Heater icon shows "FIRING" but water is cold</strong></td>
+                    <td>MasterTemp gas heater in ignition lockout or gas supply valve shut.</td>
+                    <td>Check physical heater display for error codes (e.g. <code>SVO</code> or <code>IGN</code>).</td>
+                    <td>Verify gas valve is open; ensure pump flow exceeds heater minimum 40 GPM switch threshold.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Deck jet arcs look weak or intermittent</strong></td>
+                    <td>Filter pressure high or Features pump RPM set too low.</td>
+                    <td>Check pad filter pressure gauge; check Features pump speed.</td>
+                    <td>Increase Features pump RPM to 3000 in the IntelliCenter tab; backwash sand/cartridge filter.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Iggy does not hear voice commands</strong></td>
+                    <td>USB webcam mic muted or RMS threshold set too high.</td>
+                    <td>Speak while viewing the live VU meter in the Voice tab.</td>
+                    <td>Adjust "Mic Sensitivity" slider to 75%; verify <code>arecord -l</code> detects the webcam mic.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Alexa says "Device is unresponsive"</strong></td>
+                    <td>Cloudflare Tunnel down or Lambda bearer token mismatch.</td>
+                    <td>Test accessing <code>https://pool.shobots.party/api/health</code> in browser.</td>
+                    <td>Verify <code>cloudflared</code> service is running; re-check bearer token in Alexa settings.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>3D animation runs sluggishly</strong></td>
+                    <td>WebGL hardware acceleration disabled in browser or low-end GPU.</td>
+                    <td>Check <code>chrome://gpu</code> in browser for WebGL2 status.</td>
+                    <td>Enable hardware acceleration; reduce browser window size or close background tabs.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="manual-callout good" style="margin-top: 16px;">
+              <strong>System Verification &amp; Self-Check:</strong> You can verify operational status at any time by running <code>curl -s http://localhost:2490/api/status | jq .</code> on the Raspberry Pi terminal.
+            </div>
+          </div>
+        </section>
+
+        <!-- Manual Footer / Actions -->
+        <div class="manual-footer-actions">
+          <button class="btn primary" id="printManualBtnBottom">🖨️ Print to PDF / Print Manual</button>
+          <button class="btn ghost" id="manualScrollTopBtn">Back to Top</button>
+        </div>
+      </div>
+
+      <!-- RASPBERRY PI INSTALLATION GUIDE TAB -->
+      <div class="view" id="view-install">
+        <!-- Install Hero Banner -->
+        <section class="card hero-card install-hero">
+          <div class="card-head">
+            <div>
+              <h2>🍓 Raspberry Pi Fresh Installation Guide</h2>
+              <p class="muted">Complete printable guide for deploying the Lighthouse Pool IntelliCenter Server on a brand new Raspberry Pi 4 or Raspberry Pi 5 from clean MicroSD flash to persistent background daemon.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn primary small" id="printInstallBtnTop">🖨️ Print Instructions / Save PDF</button>
+            </div>
+          </div>
+          <div class="manual-quick-meta">
+            <span class="chip live">STANDALONE INSTALL GUIDE</span>
+            <span class="chip">RASPBERRY PI 4 / 5</span>
+            <span class="chip">RASPBERRY PI OS 64-BIT (BOOKWORM)</span>
+            <span class="chip">PYTHON 3.11 / 3.12 / 3.13</span>
+            <span class="chip">SYSTEMD AUTO-START</span>
+          </div>
+
+          <!-- Quick Jump Table of Contents -->
+          <div class="manual-toc">
+            <strong>Installation Steps:</strong>
+            <div class="toc-links">
+              <a href="#pi-step1" class="toc-chip">1. Hardware &amp; Checklist</a>
+              <a href="#pi-step2" class="toc-chip">2. Flash OS (Headless)</a>
+              <a href="#pi-step3" class="toc-chip">3. Boot &amp; First SSH</a>
+              <a href="#pi-step4" class="toc-chip">4. Packages &amp; Dependencies</a>
+              <a href="#pi-step5" class="toc-chip">5. Clone Repository</a>
+              <a href="#pi-step6" class="toc-chip">6. Python Setup</a>
+              <a href="#pi-step7" class="toc-chip">7. Mic &amp; Camera (Optional)</a>
+              <a href="#pi-step8" class="toc-chip">8. Test Run</a>
+              <a href="#pi-step9" class="toc-chip">9. Systemd Auto-Start</a>
+              <a href="#pi-step10" class="toc-chip">10. Cloudflare Tunnel</a>
+              <a href="#pi-step11" class="toc-chip">11. Useful Commands</a>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 1: Hardware Checklist -->
+        <section class="card install-card" id="pi-step1">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">01</span>
+            <div>
+              <h3>Hardware Checklist &amp; Prerequisites</h3>
+              <p class="muted">Required and optional hardware for a robust, 24/7 dedicated pool controller.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <div class="manual-grid-2">
+              <div class="manual-box">
+                <h4>Required Components</h4>
+                <ul>
+                  <li><strong>Raspberry Pi Single-Board Computer:</strong> Raspberry Pi 4 Model B (2GB, 4GB, or 8GB) or Raspberry Pi 5.</li>
+                  <li><strong>Storage:</strong> 32 GB or 64 GB MicroSD card (SanDisk Extreme, Samsung EVO Plus, Class 10 / A2 rated) or USB 3.0 NVMe SSD.</li>
+                  <li><strong>Power Supply:</strong> Official Raspberry Pi USB-C power supply (15W / 5.1V 3A for Pi 4, or 27W / 5.1V 5A for Pi 5). Stable power prevents under-voltage throttling.</li>
+                  <li><strong>Local Network Link:</strong> Cat5e/Cat6 Gigabit Ethernet cable to your router or 2.4/5GHz Wi-Fi (must be on the same subnet/VLAN as the Pentair IntelliCenter).</li>
+                </ul>
+              </div>
+              <div class="manual-box">
+                <h4>Optional Voice &amp; Vision Components</h4>
+                <ul>
+                  <li><strong>USB Webcam with Mic:</strong> Standard UVC webcam (Logitech C920, C270, or similar) connected to a USB 3.0 port for Iggy camera vision and voice detection.</li>
+                  <li><strong>Audio Output:</strong> USB mini speaker, 3.5mm analog speaker (Pi 4), or HDMI monitor/TV for spoken voice responses.</li>
+                  <li><strong>Enclosure &amp; Cooling:</strong> Flirc aluminum passive case or active cooling fan case for sustained outdoor/patio operation.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 2: Flash OS -->
+        <section class="card install-card" id="pi-step2">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">02</span>
+            <div>
+              <h3>Flash Raspberry Pi OS (Headless Setup)</h3>
+              <p class="muted">Prepare the MicroSD card using Raspberry Pi Imager with preconfigured SSH and Wi-Fi.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <ol>
+              <li>Download and install <strong>Raspberry Pi Imager</strong> on your PC or Mac from <a href="https://www.raspberrypi.com/software/" target="_blank" rel="noopener" style="color: var(--cyan);">raspberrypi.com/software</a>.</li>
+              <li>Insert the MicroSD card into your computer's card reader.</li>
+              <li>Launch Raspberry Pi Imager:
+                <ul>
+                  <li><strong>Raspberry Pi Device:</strong> Choose <code>Raspberry Pi 4</code> or <code>Raspberry Pi 5</code>.</li>
+                  <li><strong>Operating System:</strong> Choose <code>Raspberry Pi OS (64-bit)</code> (Bookworm recommended; Debian based).</li>
+                  <li><strong>Storage:</strong> Select your MicroSD card.</li>
+                </ul>
+              </li>
+              <li>When prompted <em>"Would you like to apply OS customization settings?"</em>, click <strong>Edit Settings</strong>:
+                <ul>
+                  <li><strong>General tab:</strong>
+                    <ul>
+                      <li>Set hostname: <code>pool</code> (accessible as <code>pool.local</code> via mDNS).</li>
+                      <li>Set username: <code>markirgang</code> (or your preferred username) and a strong password.</li>
+                      <li>Configure wireless LAN (SSID and password) and select your Wireless LAN country.</li>
+                      <li>Set Timezone to <code>America/New_York</code> (or your pool's local timezone).</li>
+                    </ul>
+                  </li>
+                  <li><strong>Services tab:</strong>
+                    <ul>
+                      <li>Check <strong>Enable SSH</strong> &rarr; select <strong>Use password authentication</strong>.</li>
+                    </ul>
+                  </li>
+                </ul>
+              </li>
+              <li>Click <strong>Save</strong>, then click <strong>Yes</strong> to write. Wait for the image write and verification to finish, then safely eject the MicroSD card.</li>
+            </ol>
+          </div>
+        </section>
+
+        <!-- Step 3: Boot & First SSH -->
+        <section class="card install-card" id="pi-step3">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">03</span>
+            <div>
+              <h3>First Boot &amp; SSH Terminal Access</h3>
+              <p class="muted">Power on the Raspberry Pi and connect remotely over your local network.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <ol>
+              <li>Insert the MicroSD card into the Raspberry Pi's card slot.</li>
+              <li>Connect your Ethernet cable (if using wired networking) and plug in the USB-C power supply.</li>
+              <li>Wait approximately <strong>60 to 90 seconds</strong> while the Pi performs initial file system expansion and network registration.</li>
+              <li>From your computer (Terminal on macOS/Linux, or PowerShell on Windows), connect via SSH:</li>
+            </ol>
+            <pre class="manual-code"><code>ssh markirgang@pool.local</code></pre>
+            <div class="manual-callout info">
+              <strong>Tip if pool.local cannot be resolved:</strong> Check your home Wi-Fi router's DHCP client table to locate the IP address assigned to <code>pool</code>, then connect directly: <code>ssh markirgang@192.168.1.XXX</code>.
+            </div>
+            <p>When prompted with <em>"Are you sure you want to continue connecting (yes/no/[fingerprint])?"</em>, type <code>yes</code> and enter your password.</p>
+          </div>
+        </section>
+
+        <!-- Step 4: System Update & Dependencies -->
+        <section class="card install-card" id="pi-step4">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">04</span>
+            <div>
+              <h3>System Updates &amp; Core Package Installation</h3>
+              <p class="muted">Install required Linux system utilities, audio libraries, media codecs, and Python 3.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Update the package index and upgrade existing software:</p>
+            <pre class="manual-code"><code>sudo apt update &amp;&amp; sudo apt upgrade -y</code></pre>
+
+            <p style="margin-top: 10px;">Install the necessary system packages:</p>
+            <pre class="manual-code"><code>sudo apt install -y git python3 python3-pip python3-venv ffmpeg alsa-utils curl avahi-daemon jq</code></pre>
+
+            <p style="margin-top: 10px;">Grant your user account permission to access audio hardware (USB microphones, speakers) and video hardware (webcams):</p>
+            <pre class="manual-code"><code>sudo usermod -aG audio,video $USER</code></pre>
+          </div>
+        </section>
+
+        <!-- Step 5: Clone Repository -->
+        <section class="card install-card" id="pi-step5">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">05</span>
+            <div>
+              <h3>Clone the Pool Controller Codebase</h3>
+              <p class="muted">Download the application repository to your user's projects folder.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Create a dedicated <code>projects</code> directory and clone the repository from GitHub:</p>
+            <pre class="manual-code"><code>mkdir -p ~/projects
+cd ~/projects
+git clone https://github.com/markirgang/Pool.git
+cd Pool</code></pre>
+          </div>
+        </section>
+
+        <!-- Step 6: Python Dependencies -->
+        <section class="card install-card" id="pi-step6">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">06</span>
+            <div>
+              <h3>Install Python Libraries</h3>
+              <p class="muted">Install pyintellicenter, Google Gemini AI libraries, and audio synthesis tools.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Install all required Python packages listed in <code>requirements.txt</code>:</p>
+            <pre class="manual-code"><code>pip install --break-system-packages -r requirements.txt</code></pre>
+            <div class="manual-callout info">
+              <strong>Note on Debian Bookworm:</strong> The <code>--break-system-packages</code> flag is required on Raspberry Pi OS Bookworm when installing packages globally for the user. Alternatively, you can use a virtual environment:
+              <br><code>python3 -m venv ~/projects/Pool/venv &amp;&amp; source ~/projects/Pool/venv/bin/activate &amp;&amp; pip install -r requirements.txt</code>
+            </div>
+          </div>
+        </section>
+
+        <!-- Step 7: Audio & Camera -->
+        <section class="card install-card" id="pi-step7">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">07</span>
+            <div>
+              <h3>Configure USB Microphone &amp; Camera (Optional)</h3>
+              <p class="muted">Setup hardware devices for Iggy's Voice Assistant ("Talk to the Pool") and live webcam snapshots.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Plug in your USB webcam with microphone. Verify the system detects the audio recording device:</p>
+            <pre class="manual-code"><code>arecord -l</code></pre>
+
+            <p style="margin-top: 10px;">Verify video devices are present:</p>
+            <pre class="manual-code"><code>ls -la /dev/video*</code></pre>
+
+            <p style="margin-top: 10px;">If you have a dedicated USB microphone and want ALSA to use it by default for capture, create <code>/etc/asound.conf</code>:</p>
+            <pre class="manual-code"><code>cat &lt;&lt; 'EOF' | sudo tee /etc/asound.conf
+pcm.!default {
+    type asym
+    playback.pcm "hw:0,0"
+    capture.pcm "hw:1,0"
+}
+ctl.!default {
+    type hw
+    card 0
+}
+EOF</code></pre>
+          </div>
+        </section>
+
+        <!-- Step 8: Manual Test Run -->
+        <section class="card install-card" id="pi-step8">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">08</span>
+            <div>
+              <h3>Perform an Initial Test Run</h3>
+              <p class="muted">Run the server directly in your terminal to verify network discovery and web app connectivity.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Start the server in foreground mode:</p>
+            <pre class="manual-code"><code>cd ~/projects/Pool
+python3 server.py --port 2490 --host 0.0.0.0</code></pre>
+
+            <p style="margin-top: 12px;">Open a web browser on any computer, phone, or tablet connected to your local Wi-Fi and open:</p>
+            <pre class="manual-code"><code>http://pool.local:2490   # or http://&lt;your-pi-ip&gt;:2490</code></pre>
+
+            <div class="manual-callout good">
+              <strong>Checklist:</strong>
+              <ul>
+                <li>The web interface loads with 3D pool water simulation.</li>
+                <li>The header displays <strong>CONNECTED</strong> or <strong>SIMULATION MODE</strong>.</li>
+                <li>Under the <strong>IntelliCenter</strong> tab, your panel's live circuits and pumps appear (if connected to the same LAN).</li>
+              </ul>
+            </div>
+            <p>Once verified, press <kbd>Ctrl</kbd> + <kbd>C</kbd> in your SSH terminal to stop the manual server.</p>
+          </div>
+        </section>
+
+        <!-- Step 9: Systemd Daemon -->
+        <section class="card install-card" id="pi-step9">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">09</span>
+            <div>
+              <h3>Configure Persistent systemd Background Service</h3>
+              <p class="muted">Ensure the pool controller starts automatically on boot and auto-restarts if a fault occurs.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Create the systemd user service directory and service unit definition:</p>
+            <pre class="manual-code"><code>mkdir -p ~/.config/systemd/user
+cat &lt;&lt; 'EOF' &gt; ~/.config/systemd/user/pool.service
+[Unit]
+Description=Lighthouse Pool IntelliCenter Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/Pool
+ExecStart=/usr/bin/python3 server.py --port 2490 --host 0.0.0.0
+Restart=always
+RestartSec=4s
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=default.target
+EOF</code></pre>
+
+            <p style="margin-top: 12px;">Reload the systemd user daemon, enable the service on boot, and start it immediately:</p>
+            <pre class="manual-code"><code>systemctl --user daemon-reload
+systemctl --user enable --now pool.service
+loginctl enable-linger $USER</code></pre>
+
+            <div class="manual-callout info">
+              <strong>Why <code>loginctl enable-linger $USER</code> is critical:</strong> By default, systemd user services stop when you disconnect your SSH session. Enabling linger allows user services to launch at system boot and remain running 24/7 headlessly without an active user login.
+            </div>
+
+            <p style="margin-top: 10px;">Check the service status to verify it is running cleanly:</p>
+            <pre class="manual-code"><code>systemctl --user status pool.service</code></pre>
+          </div>
+        </section>
+
+        <!-- Step 10: Cloudflare Tunnel -->
+        <section class="card install-card" id="pi-step10">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">10</span>
+            <div>
+              <h3>Remote Access via Cloudflare Tunnel (Optional)</h3>
+              <p class="muted">Expose your pool controller securely to the internet without opening inbound firewall router ports.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <p>Download and install <code>cloudflared</code> for ARM64:</p>
+            <pre class="manual-code"><code>curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
+sudo dpkg -i cloudflared.deb</code></pre>
+
+            <p style="margin-top: 12px;">Authenticate cloudflared and create your tunnel:</p>
+            <pre class="manual-code"><code>cloudflared tunnel login
+cloudflared tunnel create pool
+cloudflared tunnel route dns pool pool.shobots.party</code></pre>
+
+            <p style="margin-top: 12px;">Install cloudflared as a system service so it stays running 24/7:</p>
+            <pre class="manual-code"><code>sudo cloudflared service install
+sudo systemctl enable --now cloudflared</code></pre>
+          </div>
+        </section>
+
+        <!-- Step 11: Useful Commands Reference -->
+        <section class="card install-card" id="pi-step11">
+          <div class="manual-sec-head">
+            <span class="manual-sec-num">11</span>
+            <div>
+              <h3>Operational &amp; Maintenance Command Reference</h3>
+              <p class="muted">Quick reference commands for day-to-day operations and software updates.</p>
+            </div>
+          </div>
+          <div class="manual-body-text">
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Operational Task</th>
+                    <th>Bash Shell Command</th>
+                    <th>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>View Live Server Logs</strong></td>
+                    <td><code>journalctl --user -u pool.service -f</code></td>
+                    <td>Streams real-time log output, including IntelliCenter communications and AI prompts.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Restart Service</strong></td>
+                    <td><code>systemctl --user restart pool.service</code></td>
+                    <td>Restarts the server process without rebooting the Raspberry Pi.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Stop Service</strong></td>
+                    <td><code>systemctl --user stop pool.service</code></td>
+                    <td>Stops background execution.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Check Health Endpoint</strong></td>
+                    <td><code>curl -s http://localhost:2490/api/health</code></td>
+                    <td>Returns <code>{"ok": true}</code> if the HTTP server is responsive.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Inspect Full Telemetry</strong></td>
+                    <td><code>curl -s http://localhost:2490/api/status | jq .</code></td>
+                    <td>Outputs live state, connection info, and schedule in formatted JSON.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Update Application Code</strong></td>
+                    <td><code>cd ~/projects/Pool &amp;&amp; git pull &amp;&amp; systemctl --user restart pool.service</code></td>
+                    <td>Pulls latest updates from GitHub and restarts the pool service.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Check CPU Temperature</strong></td>
+                    <td><code>vcgencmd measure_temp</code></td>
+                    <td>Displays the current core temperature of the Raspberry Pi SoC.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Reboot Raspberry Pi</strong></td>
+                    <td><code>sudo reboot</code></td>
+                    <td>Safely reboots the Raspberry Pi. The pool service will auto-start upon boot.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Install Footer Actions -->
+        <div class="install-footer-actions" style="display:flex; justify-content:space-between; margin-top:20px; padding:14px 0;">
+          <button class="btn primary" id="printInstallBtnBottom">🖨️ Print Instructions / Save PDF</button>
+          <button class="btn ghost" id="installScrollTopBtn">Back to Top</button>
+        </div>
+      </div>
     </section>
 
     <!-- RIGHT: 3D visualization, upper right -->
@@ -684,33 +2193,61 @@
             <span class="chip live" id="vizMode">POOL</span>
           </div>
         </div>
-        <div class="viz-canvas-wrap">
-          <div class="viz-status-banner simulation" id="animConnBanner">
-            <span class="status-dot"></span>
-            <span id="animConnText">SIMULATION MODE</span>
+
+        <!-- Position slot for 'above' -->
+        <div id="vizInfoSlotAbove" class="viz-info-slot"></div>
+
+        <div class="viz-body-layout" id="vizBodyLayout">
+          <div class="viz-canvas-wrap">
+            <div class="viz-status-banner simulation" id="animConnBanner">
+              <span class="status-dot"></span>
+              <span id="animConnText">SIMULATION MODE</span>
+            </div>
+            <canvas id="poolCanvas"></canvas>
+            <div class="iguana-bubble" id="iguanaBubble">
+              <div class="iguana-name">IGGY THE IGUANA</div>
+              <div class="iguana-line" id="iguanaLine">I&rsquo;ve got one eye on the pool and one on the fountains.</div>
+            </div>
+            <div class="viz-legend">
+              <span><i class="dot water"></i> water</span>
+              <span><i class="dot fire"></i> fire</span>
+              <span><i class="dot led"></i> LED</span>
+            </div>
           </div>
-          <canvas id="poolCanvas"></canvas>
-          <div class="iguana-bubble" id="iguanaBubble">
-            <div class="iguana-name">IGGY THE IGUANA</div>
-            <div class="iguana-line" id="iguanaLine">I&rsquo;ve got one eye on the pool and one on the fountains.</div>
-          </div>
+
+          <!-- Position slot for 'side' -->
+          <div id="vizInfoSlotSide" class="viz-info-slot"></div>
+        </div>
+
+        <!-- Position slot for 'below' (DEFAULT - off the animation) -->
+        <div id="vizInfoSlotBelow" class="viz-info-slot">
           <div class="viz-info" id="vizInfo">
-            <div class="viz-info-row"><span>Mode</span><b id="infoMode">Pool</b></div>
-            <div class="viz-info-row"><span>Pool / Spa</span><b id="infoTemps">-- / --</b></div>
-            <div class="viz-info-row"><span>Salt</span><b id="infoSalt">--</b></div>
-            <div class="viz-info-row"><span>Main VSR</span><b id="infoMain">--</b></div>
-            <div class="viz-info-row"><span>Features VSR</span><b id="infoFeatures">--</b></div>
-            <div class="viz-info-row"><span>Lights</span><b id="infoLights">--</b></div>
-            <div class="viz-info-row"><span>Heater</span><b id="infoHeater">--</b></div>
-            <div class="viz-info-row"><span>Water features</span><b id="infoWater">--</b></div>
-            <div class="viz-info-row"><span>Valves</span><b id="infoValves">--</b></div>
-          </div>
-          <div class="viz-legend">
-            <span><i class="dot water"></i> water</span>
-            <span><i class="dot fire"></i> fire</span>
-            <span><i class="dot led"></i> LED</span>
+            <div class="viz-info-head">
+              <div class="viz-info-title">
+                <span class="stat-dot-pulse"></span>
+                <strong>Live Telemetry &amp; Statistics</strong>
+              </div>
+              <div class="viz-info-pos-pills" id="vizInfoPosPills">
+                <span class="pos-label">Position:</span>
+                <button type="button" class="pos-pill active" data-pos="below" title="Place statistics below the animation">Below</button>
+                <button type="button" class="pos-pill" data-pos="above" title="Place statistics above the animation">Above</button>
+                <button type="button" class="pos-pill" data-pos="side" title="Place statistics beside the animation">Side</button>
+              </div>
+            </div>
+            <div class="viz-info-grid">
+              <div class="viz-info-row"><span>Mode</span><b id="infoMode">Pool</b></div>
+              <div class="viz-info-row"><span>Pool / Spa</span><b id="infoTemps">-- / --</b></div>
+              <div class="viz-info-row"><span>Salt</span><b id="infoSalt">--</b></div>
+              <div class="viz-info-row"><span>Main VSR</span><b id="infoMain">--</b></div>
+              <div class="viz-info-row"><span>Features VSR</span><b id="infoFeatures">--</b></div>
+              <div class="viz-info-row"><span>Lights</span><b id="infoLights">--</b></div>
+              <div class="viz-info-row"><span>Heater</span><b id="infoHeater">--</b></div>
+              <div class="viz-info-row"><span>Water features</span><b id="infoWater">--</b></div>
+              <div class="viz-info-row"><span>Valves</span><b id="infoValves">--</b></div>
+            </div>
           </div>
         </div>
+
         <div class="viz-stats">
           <div><span>Pool</span><strong id="vizPool">--</strong></div>
           <div><span>Spa</span><strong id="vizSpa">--</strong></div>
@@ -843,6 +2380,9 @@
 
   <div class="toast" id="toast"></div>
   <script src="pool3d.js?v=7"></script>
+  <script src="panel3d.js?v=1"></script>
   <script src="app.js?v=7"></script>
+  <script src="audio_output.js?v=2"></script>
+    <script src="ai_model_selector.js?v=1"></script>
 </body>
 </html>

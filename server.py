@@ -37,6 +37,8 @@ from alexa_skill import alexa_devices_preview, handle_request as handle_alexa
 from gemini_bridge import GeminiPoolBridge
 from intellicenter_bridge import IntelliCenterBridge
 from local_audio import LocalAudio
+import local_audio
+import ai_engine
 from local_camera import LocalCamera
 from pool_controller import PoolController
 
@@ -361,8 +363,46 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 "mapping": CONFIG.get("devices", {}),
                 "custom_devices": CONFIG.get("custom_devices", []),
             })
+        elif path in ("/api/intellicenter/open", "/api/intellicenter/host", "/intellicenter/host"):
+            parsed = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            redirect = (
+                path == "/intellicenter/host"
+                or query.get("redirect", [""])[0].lower() in ("1", "true", "yes")
+            )
+            launch = query.get("launch", [""])[0].lower() in ("1", "true", "yes")
+            result = CONTROLLER.open_host_page(launch_browser=launch)
+            if redirect:
+                if result.get("ok") and result.get("url"):
+                    self.send_response(307)
+                    self.send_header("Location", result["url"])
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    return
+                body = (
+                    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                    "<title>IntelliCenter Host Not Found</title></head>"
+                    "<body style='font-family:system-ui,sans-serif;background:#071924;color:#e8f7fb;padding:40px;text-align:center;'>"
+                    "<h2>Pentair IntelliCenter Host Not Found</h2>"
+                    "<p>No IntelliCenter host or IP address is currently configured or discovered on the network.</p>"
+                    "<p><a href='/' style='color:#43e1e8;font-weight:bold;'>Return to Pool Dashboard</a></p>"
+                    "</body></html>"
+                ).encode("utf-8")
+                self.send_response(404)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_json(result, status=200 if result.get("ok") else 404)
         elif path == "/api/config":
             self.send_json(_public_config())
+        elif path in ("/api/models", "/api/ai/models"):
+            self.send_json(ai_engine.get_available_models())
+        elif path in ("/api/audio/inputs", "/api/audio/sources"):
+            self.send_json({"inputs": local_audio.list_local_audio_inputs()})
+        elif path in ("/api/audio/outputs", "/api/audio/sinks"):
+            self.send_json({"outputs": local_audio.list_local_audio_outputs()})
         elif path == "/api/audio/devices":
             self.send_json(LOCAL_AUDIO.devices() if LOCAL_AUDIO else {
                 "inputs": [], "outputs": [], "voices": [], "local": None,
@@ -445,6 +485,12 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/intellicenter/mapping":
             res = CONTROLLER.command("save_animation_mapping", data)
             self.send_json(res)
+            return
+
+        if path == "/api/intellicenter/open":
+            launch = bool(data.get("launch") or data.get("browser"))
+            res = CONTROLLER.open_host_page(launch_browser=launch)
+            self.send_json(res, status=200 if res.get("ok") else 400)
             return
 
         if path == "/api/settings":
@@ -571,9 +617,11 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
     # ------------------------------------------------------------------
     def _handle_gemini(self, path: str, data: dict[str, Any]) -> None:
         api_key = _gemini_key(data)
-        provider = _ai_provider(data)
+        provider = data.get("provider") or _ai_provider(data)
+        model = data.get("model", "")
+        ollama_url = data.get("ollama_url", "")
         if path == "/api/gemini/chat":
-            result = _gemini_call(api_key, data.get("prompt", ""), provider=provider)
+            result = _gemini_call(api_key, data.get("prompt", ""), provider=provider, model=model, ollama_url=ollama_url)
         elif path == "/api/gemini/vision":
             image_b64 = data.get("image_b64", "")
             image = base64.b64decode(image_b64) if image_b64 else None
@@ -583,13 +631,21 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 image_bytes=image,
                 image_mime=data.get("mime_type", "image/jpeg"),
                 provider=provider,
+                model=model,
+                ollama_url=ollama_url,
             )
         else:
+            use_local_mic = bool(data.get("use_local_mic") or data.get("source") == "local")
             audio_b64 = data.get("audio_b64", "")
-            audio = base64.b64decode(audio_b64) if audio_b64 else None
+            mime = data.get("mime_type", "audio/webm")
+            if use_local_mic and not audio_b64:
+                audio = local_audio.record_local_audio(duration=float(data.get("duration", 3.5)), device=data.get("mic_device", "default"))
+                mime = "audio/wav"
+            else:
+                audio = base64.b64decode(audio_b64) if audio_b64 else None
             result = _gemini_call(
-                api_key, "", audio, data.get("mime_type", "audio/webm"), local=False,
-                provider=provider,
+                api_key, "", audio, mime, local=use_local_mic,
+                provider=provider, model=model, ollama_url=ollama_url,
             )
         self.send_json(result)
 
@@ -599,17 +655,19 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
                  speak_local: bool = True,
                  image_bytes: bytes | None = None,
                  image_mime: str = "image/jpeg",
-                 provider: str = "google") -> dict[str, Any]:
+                 provider: str = "google",
+                 model: str = "",
+                 ollama_url: str = "") -> dict[str, Any]:
     assistant = CONFIG.get("assistant") or {}
     state = _state()
     if audio is not None:
         result = GEMINI.generate_voice_chat_response(
             api_key, audio, mime_type, state, assistant, local,
-            image_bytes, image_mime, provider
+            image_bytes, image_mime, provider, model, ollama_url
         )
     else:
         result = GEMINI.generate_chat_response(
-            api_key, prompt, state, assistant, image_bytes, image_mime, provider
+            api_key, prompt, state, assistant, image_bytes, image_mime, provider, model, ollama_url
         )
     text = str(result.get("text") or "").strip()
     if text.upper().startswith("IGNORE"):

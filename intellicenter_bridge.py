@@ -178,12 +178,23 @@ class IntelliCenterBridge:
     def mode(self) -> str:
         return "panel" if self._connected else "simulation"
 
+    @property
+    def web_url(self) -> str:
+        with self._lock:
+            host = (self._host or (self.ic_config.get("host") or "")).strip()
+            if not host:
+                return ""
+            if host.startswith(("http://", "https://")):
+                return host
+            return f"http://{host}"
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "connected": self._connected,
                 "mode": self.mode,
                 "host": self._host,
+                "web_url": self.web_url,
                 "port": self._port,
                 "transport": self._transport,
                 "pyintellicenter": PYIC_AVAILABLE,
@@ -201,6 +212,7 @@ class IntelliCenterBridge:
                 "connected": self._connected,
                 "mode": self.mode,
                 "host": self._host,
+                "web_url": self.web_url,
                 "port": self._port,
                 "last_error": self._last_error,
             }
@@ -635,6 +647,7 @@ class IntelliCenterBridge:
                 "connected": self._connected,
                 "mode": self.mode,
                 "host": self._host,
+                "web_url": self.web_url,
                 "last_error": self._last_error,
             }
 
