@@ -116,7 +116,26 @@ class TestServerEndpoints(unittest.TestCase):
         import socket
         import threading
         import urllib.request
+        import secrets
+        import auth
+        import server
         from server import PoolHandler, CONFIG, BRIDGE, CONTROLLER
+
+        # Never write the real config files from tests.
+        cls.original_save_config = server.save_config
+        server.save_config = lambda config: None
+
+        # Temporary in-memory login; these endpoints require a session.
+        cls.original_auth = CONFIG.get("auth")
+        CONFIG["auth"] = {
+            "username": "test",
+            "password_hash": auth.hash_password("test-password"),
+            "secret": secrets.token_hex(32),
+        }
+        cls.cookie = "%s=%s" % (auth.COOKIE_NAME, auth.make_session(CONFIG))
+        opener = urllib.request.build_opener()
+        opener.addheaders = [("Cookie", cls.cookie)]
+        urllib.request.install_opener(opener)
 
         cls.original_host = CONFIG.get("intellicenter", {}).get("host", "")
         CONFIG.setdefault("intellicenter", {})["host"] = "192.168.1.88"
@@ -130,7 +149,15 @@ class TestServerEndpoints(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        import urllib.request
+        import server
         from server import CONFIG, BRIDGE
+        urllib.request.install_opener(None)
+        if cls.original_auth is None:
+            CONFIG.pop("auth", None)
+        else:
+            CONFIG["auth"] = cls.original_auth
+        server.save_config = cls.original_save_config
         CONFIG.setdefault("intellicenter", {})["host"] = cls.original_host
         BRIDGE.reconfigure(host=cls.original_host)
         cls.httpd.shutdown()
@@ -170,6 +197,7 @@ class TestServerEndpoints(unittest.TestCase):
                 return fp
 
         opener = urllib.request.build_opener(NoRedirectHandler)
+        opener.addheaders = [("Cookie", self.cookie)]
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/intellicenter/host")
         try:
             resp = opener.open(req)
@@ -178,6 +206,26 @@ class TestServerEndpoints(unittest.TestCase):
         except urllib.error.HTTPError as err:
             self.assertEqual(err.code, 307)
             self.assertEqual(err.headers.get("Location"), "http://192.168.1.88")
+
+    def test_controls_require_login(self):
+        import urllib.error
+        import urllib.request
+        plain = urllib.request.build_opener()
+        for method, path in (("GET", "/api/camera/snapshot"),
+                             ("GET", "/api/intellicenter/open"),
+                             ("POST", "/api/command"),
+                             ("POST", "/api/settings"),
+                             ("POST", "/alexa")):
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}{path}", method=method,
+                data=b"{}" if method == "POST" else None,
+                headers={"Content-Type": "application/json"},
+            )
+            with self.assertRaises(urllib.error.HTTPError, msg=path) as ctx:
+                plain.open(req)
+            self.assertEqual(ctx.exception.code, 401, path)
+        with plain.open(f"http://127.0.0.1:{self.port}/api/state") as resp:
+            self.assertEqual(resp.status, 200)
 
     def test_get_intellicenter_scan_endpoint(self):
         import urllib.request
