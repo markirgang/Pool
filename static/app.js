@@ -3,7 +3,18 @@
   "use strict";
 
   var $ = function (id) { return document.getElementById(id); };
-  var state = null;
+  var state = {
+    mode: "pool",
+    bodies: { pool: { temp: null, setpoint: 84, heating: false }, spa: { temp: null, setpoint: 102, heating: false } },
+    pumps: { main: { on: false, rpm: 2200 }, features: { on: false, rpm: 2800 } },
+    deck_jets: {},
+    firebaskets: {},
+    blower: { on: false },
+    lights: {},
+    heater: { on: false, setpoint: 84 },
+    chemistry: { salt: 3200 },
+    schedule: { enabled: true, runs: [] }
+  };
   var config = null;
   var scheduleDraft = null;
   var scheduleKey = null;
@@ -2403,7 +2414,7 @@
     if ($("valLogicSpaTemp")) $("valLogicSpaTemp").textContent = spaTemp ? (spaTemp + "°F") : "102°F (Set: 102°F)";
     if ($("valLogicFlow")) $("valLogicFlow").textContent = flowOk ? ("FLOW OK (" + mainRpm + " RPM >= 1500)") : "FLOW LOW (< 1500 RPM)";
     if ($("valLogicSalt")) $("valLogicSalt").textContent = (chem.salt || 3200) + " PPM (OPTIMAL: 2800-3600)";
-    var activeRunName = (state.schedule && state.schedule.active_run) || "Main VSR daytime";
+    var activeRunName = (state && state.schedule && state.schedule.active_run) || "Main VSR daytime";
     if ($("valLogicSchedule")) $("valLogicSchedule").textContent = "Active: " + activeRunName;
 
     // Actuators
@@ -3092,10 +3103,7 @@
   }
 
   function bind() {
-    buildFeatureCards();
-    initIntelliCenterManager();
-    initPoolLogicVisualization();
-
+    // 1. BIND TABS FIRST SO NAVIGATION ALWAYS WORKS IMMEDIATELY
     document.querySelectorAll(".tab").forEach(function (tab) {
       tab.addEventListener("click", function () {
         var name = tab.getAttribute("data-tab");
@@ -3107,6 +3115,10 @@
       activateTab((location.hash || "#control").slice(1));
     });
     activateTab((location.hash || "#control").slice(1));
+
+    try { buildFeatureCards(); } catch (err) { console.error("buildFeatureCards error:", err); }
+    try { initIntelliCenterManager(); } catch (err) { console.error("initIntelliCenterManager error:", err); }
+    try { initPoolLogicVisualization(); } catch (err) { console.error("initPoolLogicVisualization error:", err); }
 
     document.querySelectorAll(".pos-pill").forEach(function (pill) {
       pill.addEventListener("click", function () {
