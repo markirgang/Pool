@@ -39,6 +39,7 @@ _TOOL_ACTIONS = {
     "pool_set_all_features": "set_all_features",
     "pool_set_blower": "set_blower",
     "pool_set_light": "set_light",
+    "pool_set_all_lights": "set_all_lights",
     "pool_set_spillway_color": "set_spillway_color",
     "pool_set_heater": "set_heater",
     "pool_set_pump": "set_pump",
@@ -216,6 +217,21 @@ class GeminiPoolBridge:
                             ),
                         },
                         required=["body"],
+                    ),
+                ),
+                types.FunctionDeclaration(
+                    name="pool_set_all_lights",
+                    description=("Set every color light (pool and spa) at once. Use for "
+                                 "'party mode' (effect PARTY) or 'turn all the lights back "
+                                 "to blue' (effect BLUER)."),
+                    parameters=types.Schema(
+                        type=types.Type.OBJECT,
+                        properties={
+                            "on": types.Schema(type=types.Type.BOOLEAN),
+                            "effect": types.Schema(
+                                type=types.Type.STRING, enum=_EFFECTS
+                            ),
+                        },
                     ),
                 ),
                 types.FunctionDeclaration(
@@ -407,6 +423,11 @@ class GeminiPoolBridge:
             payload = {"on": bool(args.get("on"))}
         elif action == "set_spillway_color":
             payload = {"effect": args.get("effect")}
+        elif action == "set_all_lights":
+            payload = {
+                "on": args.get("on", True),
+                "effect": args.get("effect"),
+            }
         elif action == "set_light":
             payload = {
                 "body": str(args.get("body", "pool")).lower(),

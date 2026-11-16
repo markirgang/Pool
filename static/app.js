@@ -701,7 +701,7 @@
 
   function setVuThreshold(rms) {
     var pos = Math.round(rmsToPct(rms));
-    ["voiceVuThresh", "hwVuThresh"].forEach(function (id) {
+    ["voiceVuThresh", "hwVuThresh", "cockpitVuThresh"].forEach(function (id) {
       var th = document.getElementById(id);
       if (th) th.style.left = pos + "%";
     });
@@ -709,8 +709,8 @@
 
   function updateVuMeter(level) {
     var val = Math.max(0, Math.min(100, Math.round(level)));
-    var fills = [document.getElementById("voiceVuFill"), document.getElementById("hwVuFill")];
-    var texts = [document.getElementById("voiceVuVal"), document.getElementById("hwVuVal")];
+    var fills = ["voiceVuFill", "hwVuFill", "cockpitVuFill"].map(function (id) { return document.getElementById(id); });
+    var texts = ["voiceVuVal", "hwVuVal", "cockpitVuVal"].map(function (id) { return document.getElementById(id); });
     fills.forEach(function (f) { if (f) f.style.width = val + "%"; });
     texts.forEach(function (t) { if (t) t.textContent = val + "%"; });
   }
@@ -718,11 +718,11 @@
   function setMicSensitivity(percent, sendServer) {
     micSensitivityPercent = Math.max(10, Math.min(100, parseInt(percent, 10) || 70));
     localStorage.setItem("pool.micSensitivity", micSensitivityPercent);
-    ["micSensitivity", "hwMicSensitivity"].forEach(function (id) {
+    ["micSensitivity", "hwMicSensitivity", "cockpitMicSensitivity"].forEach(function (id) {
       var s = document.getElementById(id);
       if (s) s.value = micSensitivityPercent;
     });
-    ["micSensitivityVal", "hwMicSensitivityVal"].forEach(function (id) {
+    ["micSensitivityVal", "hwMicSensitivityVal", "cockpitMicSensitivityVal"].forEach(function (id) {
       var v = document.getElementById(id);
       if (v) v.textContent = micSensitivityPercent + "%";
     });
@@ -796,6 +796,36 @@
     updateVuMeter(0);
   }
 
+  function updateMicChip(stat) {
+    var chip = $("micStateChip");
+    if (!chip) return;
+    var label = "LISTENING", cls = "listening";
+    if (!stat.mic_running || /stream ended|open failed/i.test(stat.last_error || "")) {
+      label = "MIC OFF"; cls = "off";
+    } else if (stat.in_speech) {
+      label = "HEARING YOU"; cls = "hearing";
+    } else if (!stat.auto_transcribe) {
+      label = "LEVEL ONLY"; cls = "";
+    }
+    chip.textContent = label;
+    chip.className = "mic-state-chip" + (cls ? " " + cls : "");
+  }
+
+  function setSilenceDelay(seconds, sendServer) {
+    var sec = Math.max(0.5, Math.min(5, Math.round((parseFloat(seconds) || 1) * 10) / 10));
+    if ($("silenceDelay")) $("silenceDelay").value = sec;
+    if ($("silenceDelayVal")) $("silenceDelayVal").textContent = sec.toFixed(1) + " s";
+    if (sendServer) {
+      api("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio: { local: { silence_ms: Math.round(sec * 1000) } } })
+      }).then(function () {
+        toast("Silence delay set to " + sec.toFixed(1) + " s", "good");
+      }).catch(function () {});
+    }
+  }
+
   async function pollLocalAudioStatus() {
     if (micSource() === "browser") return;
     if (recorder && recorder.state === "recording") return;
@@ -803,6 +833,7 @@
       var stat = await api("/api/audio/status");
       if (stat && stat.rms !== undefined) {
         updateVuMeter(rmsToPct(stat.rms));
+        updateMicChip(stat);
       }
     } catch (e) {}
   }
@@ -1032,6 +1063,7 @@
       if ($("destBrowserSpeaker")) $("destBrowserSpeaker").checked = (savedSpeakerDest === "browser");
       if ($("destBothSpeaker")) $("destBothSpeaker").checked = (savedSpeakerDest === "both");
 
+      setSilenceDelay((localCfg.silence_ms || 1000) / 1000, false);
       if (localCfg.speech_rms) {
         var pct = Math.round(((1000 - localCfg.speech_rms) / 800) * 100);
         setMicSensitivity(Math.max(10, Math.min(100, pct)), false);
@@ -1376,7 +1408,12 @@
       $("alexaSkillName").value = alexa.skill_name || "";
       $("alexaEndpoint").textContent = "Endpoint: " +
         ((pi.public_url || location.origin) + "/alexa");
-      $("alexaSkillInfo").textContent = "Skill: " + (alexa.skill_name || "Shobots Pool") +
+      if ($("alexaSkillId")) $("alexaSkillId").value = alexa.skill_id || "";
+      if ($("alexaCustomChip")) {
+        $("alexaCustomChip").textContent = alexa.skill_id ? "SKILL ID SET" : "NOT LINKED";
+        $("alexaCustomChip").className = "chip" + (alexa.skill_id ? " on" : " hot");
+      }
+      $("alexaSkillInfo").textContent = "Skill: " + (alexa.skill_name || "Lighthouse Pool") +
         " \u00B7 " + (alexa.enabled !== false ? "enabled" : "disabled") +
         " \u00B7 token " + (alexa.token_set ? "set" : "not set");
 
@@ -1420,6 +1457,41 @@
       setTimeout(refreshInventory, 1200);
     } catch (err) {
       toast("Settings failed: " + err.message, "error");
+    }
+  }
+
+  async function saveAlexaSkillId() {
+    var id = $("alexaSkillId").value.trim();
+    if (id && !/^amzn1\.ask\.skill\.[0-9a-f-]{36}$/i.test(id)) {
+      toast("That doesn't look like a Skill ID (amzn1.ask.skill.\u2026)", "error");
+      return;
+    }
+    try {
+      var result = await api("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alexa_skill_id: id })
+      });
+      toast(id ? "Skill ID saved: Alexa can now control the pool" : "Skill ID cleared", "good");
+      if (result.config) config = result.config;
+      loadConfig();
+    } catch (err) {
+      toast("Could not save Skill ID: " + err.message, "error");
+    }
+  }
+
+  async function downloadAlexaModel() {
+    try {
+      var model = await api("/api/alexa/interaction-model");
+      var blob = new Blob([JSON.stringify(model, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "lighthouse-pool-interaction-model.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    } catch (err) {
+      toast("Could not download the interaction model: " + err.message, "error");
     }
   }
 
@@ -3353,6 +3425,14 @@
 
     $("saveSettings").addEventListener("click", saveSettings);
     $("saveAlexa").addEventListener("click", saveAlexaSettings);
+    $("saveAlexaSkillId").addEventListener("click", saveAlexaSkillId);
+    $("lightsParty").addEventListener("click", function () {
+      command("set_all_lights", { on: true, effect: "PARTY" });
+    });
+    $("lightsAllBlue").addEventListener("click", function () {
+      command("set_all_lights", { on: true, effect: "BLUER" });
+    });
+    $("downloadAlexaModel").addEventListener("click", downloadAlexaModel);
     if ($("refreshAlexaBtn")) $("refreshAlexaBtn").addEventListener("click", loadAlexa);
     $("refreshInventory").addEventListener("click", refreshInventory);
     if ($("setupOpenHostBtn")) $("setupOpenHostBtn").addEventListener("click", openIntelliCenterHost);
@@ -3377,6 +3457,16 @@
     if (micSens) {
       micSens.addEventListener("input", function (e) { setMicSensitivity(e.target.value, false); });
       micSens.addEventListener("change", function (e) { setMicSensitivity(e.target.value, true); });
+    }
+    var cockpitMicSens = $("cockpitMicSensitivity");
+    if (cockpitMicSens) {
+      cockpitMicSens.addEventListener("input", function (e) { setMicSensitivity(e.target.value, false); });
+      cockpitMicSens.addEventListener("change", function (e) { setMicSensitivity(e.target.value, true); });
+    }
+    var silenceDelay = $("silenceDelay");
+    if (silenceDelay) {
+      silenceDelay.addEventListener("input", function (e) { setSilenceDelay(e.target.value, false); });
+      silenceDelay.addEventListener("change", function (e) { setSilenceDelay(e.target.value, true); });
     }
     var hwMicSens = $("hwMicSensitivity");
     if (hwMicSens) {

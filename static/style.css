@@ -2316,3 +2316,60 @@ body.logged-out .view :is(button, input, select, textarea, .switch, .mode-btn) {
 .login-dialog { max-width: 420px; width: calc(100vw - 32px); }
 .login-grid { grid-template-columns: 1fr; }
 .login-error { min-height: 1.2em; margin-top: 10px; color: #ffb4b4; font-size: 0.85rem; }
+
+/* Microphone card (left cockpit): large, high-contrast level meter */
+.mic-card { border-color: rgba(67, 225, 232, 0.35); }
+.mic-card .mic-card-vu { max-width: none; margin: 4px 0 10px; }
+.mic-card .vu-meter-header { font-size: 0.78rem; color: var(--text); }
+.mic-card .vu-meter-val { color: var(--cyan); font-size: 0.95rem; }
+.mic-card .vu-meter-track { height: 24px; border-radius: 12px; border-color: rgba(77, 217, 240, 0.45); overflow: visible; }
+.mic-card .vu-meter-fill { border-radius: 11px; }
+.mic-card .vu-meter-threshold {
+  top: -5px;
+  bottom: -5px;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 8px #ffffff;
+}
+.vu-meter-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.mic-card .mic-sensitivity-row { font-size: 0.9rem; margin-top: 10px; }
+.mic-card .mic-sensitivity-row label { min-width: 96px; }
+.mic-card .mic-sensitivity-row input[type="range"] { accent-color: var(--cyan); height: 22px; min-width: 0; }
+.mic-card .sensitivity-val { min-width: 48px; text-align: right; font-size: 0.95rem; }
+.mic-state-chip {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.mic-state-chip.listening { color: var(--cyan); border-color: rgba(67, 225, 232, 0.45); }
+.mic-state-chip.hearing {
+  color: #04222b;
+  background: var(--green);
+  border-color: transparent;
+  box-shadow: 0 0 14px rgba(98, 230, 166, 0.65);
+}
+.mic-state-chip.off { color: #ffb4b4; border-color: rgba(255, 115, 115, 0.45); }
+
+.light-scenes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 4px; }
+.light-scenes .btn { justify-content: center; }
+.party-btn {
+  background: linear-gradient(135deg, rgba(255, 92, 168, 0.22), rgba(181, 140, 255, 0.22), rgba(67, 225, 232, 0.22));
+  border-color: rgba(181, 140, 255, 0.5);
+}
+.alexa-examples { margin: 4px 0 12px; line-height: 1.6; color: var(--text); font-size: 0.9rem; }
+.alexa-steps { margin: 0 0 14px 1.2em; padding: 0; line-height: 1.6; font-size: 0.9rem; }
+.alexa-steps li { margin-bottom: 8px; }
+.alexa-steps code { font-size: 0.85em; }

@@ -36,6 +36,7 @@ import time
 import urllib.parse
 from typing import Any
 
+import alexa_custom
 import auth
 from alexa_skill import alexa_devices_preview, handle_request as handle_alexa
 from gemini_bridge import GeminiPoolBridge
@@ -338,6 +339,7 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
     def read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) if length > 0 else b"{}"
+        self.raw_body = raw
         try:
             data = json.loads(raw.decode("utf-8"))
             return data if isinstance(data, dict) else {}
@@ -528,6 +530,10 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.send_image(LOCAL_CAMERA.capture() if LOCAL_CAMERA else None)
         elif path == "/api/alexa":
             self.send_json(alexa_devices_preview(CONTROLLER))
+        elif path == "/api/alexa/interaction-model":
+            alexa_cfg = CONFIG.get("alexa") or {}
+            self.send_json(alexa_custom.interaction_model(
+                alexa_cfg.get("invocation_name") or "lighthouse pool"))
         elif path == "/api/health":
             self.send_json({"ok": True, "time": time.time()})
         elif path in ("/", ""):
@@ -550,9 +556,26 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_logout()
             return
 
+        if path == "/alexa" and alexa_custom.is_custom_skill_request(data):
+            # Custom skill: Amazon signs every request; only our Skill ID may act.
+            alexa_cfg = CONFIG.get("alexa") or {}
+            ok, why = alexa_custom.verify_request(
+                getattr(self, "raw_body", b""), self.headers, data,
+                str(alexa_cfg.get("skill_id") or "").strip())
+            if not ok:
+                LOG.warning("Rejected Alexa request: %s", why)
+                self.send_json({"error": "unauthorized"}, status=401)
+                return
+            LOG.info("Alexa %s %s", (data.get("request") or {}).get("type"),
+                     ((data.get("request") or {}).get("intent") or {}).get("name", ""))
+            self.send_json(alexa_custom.handle(
+                data, CONTROLLER, ask_iggy=_alexa_ask_iggy,
+                skill_name=alexa_cfg.get("skill_name") or "Lighthouse Pool"))
+            return
+
         if path == "/alexa":
-            # Alexa authenticates with its own bearer token; with no token set
-            # the endpoint stays closed rather than open to the internet.
+            # Smart Home directives authenticate with a bearer token; with no
+            # token set the endpoint stays closed rather than open to the internet.
             token = (CONFIG.get("alexa") or {}).get("token")
             header = self.headers.get("Authorization", "")
             if not token or not hmac.compare_digest(
@@ -703,6 +726,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             CONFIG.setdefault("alexa", {})["enabled"] = bool(data.get("alexa_enabled"))
         if data.get("alexa_skill_name") is not None:
             CONFIG.setdefault("alexa", {})["skill_name"] = str(data.get("alexa_skill_name") or "")
+        if data.get("alexa_skill_id") is not None:
+            CONFIG.setdefault("alexa", {})["skill_id"] = str(data.get("alexa_skill_id") or "").strip()
         if data.get("alexa_token") is not None:
             CONFIG.setdefault("alexa", {})["token"] = str(data.get("alexa_token") or "")
         if isinstance(data.get("assistant"), dict):
@@ -792,6 +817,18 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 provider=provider, model=model, ollama_url=ollama_url,
             )
         self.send_json(result)
+
+
+def _alexa_ask_iggy(query: str) -> str:
+    api_key = _gemini_key({})
+    if not api_key:
+        return "Iggy needs an AI key before he can answer."
+    result = _gemini_call(api_key, query, speak_local=False, provider=_ai_provider({}))
+    text = str(result.get("text") or "").strip()
+    applied = result.get("applied") or {}
+    if not text and applied.get("message"):
+        text = str(applied["message"])
+    return text
 
 
 WAKE_WORDS = ("iggy", "iggie", "iggi", "iggey", "igy")

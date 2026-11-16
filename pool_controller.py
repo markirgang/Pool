@@ -425,6 +425,11 @@ class PoolController:
                 return self.set_blower(bool(payload.get("on")))
             if action == "set_spillway_color":
                 return self.set_spillway_color(payload.get("effect"))
+            if action == "set_all_lights":
+                return self.set_all_lights(
+                    on=payload.get("on", True),
+                    effect=payload.get("effect"),
+                )
             if action == "set_light":
                 return self.set_light(
                     payload.get("body", "pool"),
@@ -974,8 +979,36 @@ class PoolController:
                 changes[target] = params
         name = LIGHT_EFFECTS.get(state["effect"], state["effect"])
         ok, msg = self._send(changes, "light_%s" % body)
-        return self._result(ok, "%s light %s%s" % (
+        return self._result(ok, "%s light %s" % (
             body.capitalize(), "on - " + name if state["on"] else "off"), msg)
+
+    def set_all_lights(self, on: bool | None = True,
+                       effect: str | None = None) -> dict[str, Any]:
+        """Set every color light at once, e.g. party mode or all blue."""
+        if effect:
+            effect = str(effect).upper()
+            if effect not in LIGHT_EFFECTS:
+                return self._result(False, "Unknown light effect: %s" % effect)
+        with self.lock:
+            resolved = self.bridge.resolved()
+            changes: dict[str, dict[str, Any]] = {}
+            for body in ("pool", "spa"):
+                state = self.state_data["lights"][body]
+                if effect:
+                    state["effect"] = effect
+                if on is not None:
+                    state["on"] = bool(on)
+                target = resolved.get("lights", {}).get(body)
+                if target:
+                    params = {"STATUS": "ON" if state["on"] else "OFF"}
+                    if state["on"]:
+                        params["ACT"] = state["effect"]
+                    changes[target] = params
+            shown = self.state_data["lights"]["pool"]
+        name = LIGHT_EFFECTS.get(shown["effect"], shown["effect"])
+        ok, msg = self._send(changes, "all_lights")
+        return self._result(ok, "All lights %s" % (
+            "on - " + name if shown["on"] else "off"), msg)
 
     # ------------------------------------------------------------------
     # Heater

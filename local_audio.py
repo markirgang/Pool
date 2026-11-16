@@ -93,6 +93,7 @@ class LocalAudio:
         self._active_input = ""
         self._active_output = ""
         self._current_rms = 0
+        self._in_speech = False
         self._last_status: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
@@ -120,6 +121,9 @@ class LocalAudio:
             "output_device": self._active_output or self._local_cfg().get("output_device", "default"),
             "rms": self._current_rms,
             "speech_rms": int(self._local_cfg().get("speech_rms", 450)),
+            "silence_ms": int(self._local_cfg().get("silence_ms", 1000)),
+            "in_speech": self._in_speech,
+            "auto_transcribe": bool(self._local_cfg().get("auto_transcribe", False)),
             "last_error": self._last_error,
             "last_heard": self._last_heard,
             "last_spoken": self._last_spoken,
@@ -278,13 +282,14 @@ class LocalAudio:
                     pre_roll.clear()
                     frames = []
                     in_speech = False
+                    self._in_speech = False
                     speech_seconds = 0.0
                     silence_seconds = 0.0
                     continue
                 # Re-read so the sensitivity slider takes effect immediately.
                 cfg = self._local_cfg()
                 threshold = int(cfg.get("speech_rms", 450))
-                silence_needed = int(cfg.get("silence_ms", 1000)) / 1000.0
+                silence_needed = max(300, min(10000, int(cfg.get("silence_ms", 1000)))) / 1000.0
                 cur_rms = _rms(data)
                 self._current_rms = cur_rms
                 voiced = cur_rms >= threshold
@@ -310,6 +315,7 @@ class LocalAudio:
                     pre_roll.append(data)
                     if len(pre_roll) > 4:
                         pre_roll.pop(0)
+                self._in_speech = in_speech
                 if in_speech and speech_seconds + silence_seconds > max_record:
                     self._finish_capture(frames, rate)
                     frames = []

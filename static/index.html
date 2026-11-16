@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lighthouse Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=10">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -96,6 +96,38 @@
             </div>
           </section>
 
+          <!-- Card: Microphone level, sensitivity and silence delay -->
+          <section class="card mic-card" id="micCard">
+            <div class="card-head">
+              <div>
+                <h2>Microphone</h2>
+                <p class="muted">Start with &ldquo;Iggy&rdquo;. Speech is sent once it goes quiet for the silence delay.</p>
+              </div>
+              <span class="mic-state-chip" id="micStateChip">LISTENING</span>
+            </div>
+            <div class="vu-meter-container mic-card-vu">
+              <div class="vu-meter-header">
+                <span class="vu-meter-title">MIC LEVEL</span>
+                <span class="vu-meter-val" id="cockpitVuVal">0%</span>
+              </div>
+              <div class="vu-meter-track">
+                <div class="vu-meter-fill" id="cockpitVuFill"></div>
+                <div class="vu-meter-threshold" id="cockpitVuThresh" title="Speech threshold: louder than this counts as speech"></div>
+              </div>
+              <div class="vu-meter-legend"><span>Quiet</span><span>&#9474; = speech threshold</span><span>Loud</span></div>
+            </div>
+            <div class="mic-sensitivity-row">
+              <label for="cockpitMicSensitivity">Sensitivity</label>
+              <input type="range" id="cockpitMicSensitivity" min="10" max="100" value="70" step="5">
+              <span class="sensitivity-val" id="cockpitMicSensitivityVal">70%</span>
+            </div>
+            <div class="mic-sensitivity-row">
+              <label for="silenceDelay">Silence delay</label>
+              <input type="range" id="silenceDelay" min="0.5" max="5" value="1" step="0.1">
+              <span class="sensitivity-val" id="silenceDelayVal">1.0 s</span>
+            </div>
+          </section>
+
           <!-- Card: Variable Speed Pumps -->
           <section class="card">
             <div class="card-head">
@@ -177,6 +209,10 @@
                 </div>
                 <select id="spaEffect" class="select"></select>
               </div>
+            </div>
+            <div class="light-scenes">
+              <button class="btn small party-btn" id="lightsParty" type="button">&#127881; Party Mode</button>
+              <button class="btn small" id="lightsAllBlue" type="button">All Lights Blue</button>
             </div>
             <div class="heater-row">
               <div class="heater-info">
@@ -1182,7 +1218,39 @@
         <section class="card">
           <div class="card-head">
             <div>
-              <h2>Alexa Smart Home Skill</h2>
+              <h2>Lighthouse Pool Alexa Skill</h2>
+              <p class="muted">Say &ldquo;Alexa, ask Lighthouse Pool to &hellip;&rdquo;. Alexa calls this Pi directly; no AWS account needed.</p>
+            </div>
+            <span class="chip" id="alexaCustomChip">NOT LINKED</span>
+          </div>
+          <div class="alexa-examples">
+            <strong>Try:</strong>
+            &ldquo;&hellip;turn the pool blue&rdquo; &middot; &ldquo;&hellip;turn the spa blue&rdquo; &middot;
+            &ldquo;&hellip;start party mode&rdquo; &middot; &ldquo;&hellip;turn all the lights back to blue&rdquo; &middot;
+            &ldquo;&hellip;turn on the spa&rdquo; &middot; &ldquo;&hellip;what&rsquo;s the water temperature&rdquo; &middot;
+            &ldquo;&hellip;tell Iggy to turn on the fountains&rdquo;
+          </div>
+          <ol class="alexa-steps">
+            <li>Go to <a href="https://developer.amazon.com/alexa/console/ask" target="_blank" rel="noopener">developer.amazon.com/alexa/console/ask</a>, sign in with the Amazon account your Echo uses, and click <b>Create Skill</b>. Name it <b>Lighthouse Pool</b>, choose <b>Other &rarr; Custom</b> model and <b>Provision your own</b> hosting, then <b>Start from Scratch</b>.</li>
+            <li>Open <b>Build &rarr; Interaction Model &rarr; JSON Editor</b>, replace everything with the file from <button class="btn small" id="downloadAlexaModel" type="button">Download interaction model</button>, then click <b>Save</b> and <b>Build skill</b>.</li>
+            <li>Open <b>Endpoint</b>, choose <b>HTTPS</b>, enter <code>https://pool.shobots.party/alexa</code>, and for the certificate pick <b>&ldquo;My development endpoint has a certificate from a trusted certificate authority&rdquo;</b>. Save.</li>
+            <li>Copy the <b>Skill ID</b> (starts with <code>amzn1.ask.skill.</code>) from the top of the Endpoint page, paste it below and click Save.</li>
+            <li>Open the <b>Test</b> tab, set testing to <b>Development</b>, and type &ldquo;ask lighthouse pool to start party mode&rdquo;. Your Echo devices on the same account can use the skill right away.</li>
+          </ol>
+          <div class="form-grid">
+            <label>Skill ID
+              <input type="text" id="alexaSkillId" placeholder="amzn1.ask.skill.xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false">
+            </label>
+          </div>
+          <div class="row-actions">
+            <button class="btn primary small" id="saveAlexaSkillId" type="button">Save Skill ID</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Advanced: Alexa Smart Home Skill</h2>
               <p class="muted">All endpoints that Alexa will detect upon running &ldquo;Alexa, discover devices&rdquo;.</p>
             </div>
             <span class="chip live" id="alexaStatusChip">READY FOR DISCOVERY</span>
@@ -1209,7 +1277,7 @@
           <div class="card-head" style="margin-top: 24px;">
             <div>
               <h3>Alexa Skill Configuration</h3>
-              <p class="muted">Point your AWS Lambda Smart Home forwarder at this endpoint.</p>
+              <p class="muted">Smart Home skills can't call this Pi directly: they need an AWS Lambda forwarder that sends the bearer token below. Most setups only need the Lighthouse Pool skill above.</p>
             </div>
             <label class="switch inline">
               <input type="checkbox" id="alexaEnabled" checked>
@@ -2782,9 +2850,9 @@ sudo systemctl enable --now cloudflared</code></pre>
     </form>
   </div>
 
-  <script src="pool3d.js?v=8"></script>
+  <script src="pool3d.js?v=9"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=10"></script>
   <script src="audio_output.js?v=2"></script>
     <script src="ai_model_selector.js?v=1"></script>
 </body>
