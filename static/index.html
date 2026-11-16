@@ -17,7 +17,21 @@
         <p class="tagline">Pentair IntelliCenter Control &middot; 3D Digital Twin</p>
       </div>
     </div>
-    <div class="header-right">
+    
+    <!-- Center Navigation Tabs -->
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="control">Control</button>
+      <button class="tab" data-tab="intellicenter">IntelliCenter</button>
+      <button class="tab" data-tab="panel">3D Panel</button>
+      <button class="tab" data-tab="logic">🧠 Logic</button>
+      <button class="tab" data-tab="schedule">Schedule</button>
+      <button class="tab" data-tab="voice">Voice</button>
+      <button class="tab" data-tab="alexa">Alexa</button>
+      <button class="tab" data-tab="setup">Hardware</button>
+      <button class="tab" data-tab="install">🍓 Pi Setup</button>
+      <button class="tab" data-tab="manual">📖 Instructions</button>
+    </nav>
+<div class="header-right">
       <a class="public-link" href="https://pool.shobots.party" target="_blank" rel="noopener">pool.shobots.party</a>
       <div class="status-badge" id="statusBadge">
         <span class="status-dot"></span>
@@ -29,199 +43,284 @@
 
   <main class="layout">
     <!-- LEFT: controls -->
-    <section class="controls-column">
-      <nav class="tabs" id="tabs">
-        <button class="tab active" data-tab="control">Control</button>
-        <button class="tab" data-tab="intellicenter">IntelliCenter</button>
-        <button class="tab" data-tab="panel">3D Panel</button>
-        <button class="tab" data-tab="logic">🧠 Logic</button>
-        <button class="tab" data-tab="schedule">Schedule</button>
-        <button class="tab" data-tab="voice">Voice</button>
-        <button class="tab" data-tab="alexa">Alexa</button>
-        <button class="tab" data-tab="setup">Hardware</button>
-        <button class="tab" data-tab="install">🍓 Pi Setup</button>
-        <button class="tab" data-tab="manual">📖 Instructions</button>
-      </nav>
+    
 
-      <!-- CONTROL -->
+      
+      <!-- CONTROL (3-COLUMN COCKPIT LAYOUT) -->
       <div class="view active" id="view-control">
-        <section class="card hero-card">
-          <div class="card-head">
-            <div>
-              <h2>Water Body</h2>
-              <p class="muted">Pool is the startup default. IntelliCenter moves the 3-way valves for you.</p>
+        <!-- 1. LEFT COCKPIT PANEL: WATER BODY, PUMPS, HEATER, LIGHTS -->
+        <aside class="cockpit-panel-left">
+          <!-- Card: Water Body & Modes -->
+          <section class="card hero-card">
+            <div class="card-head">
+              <div>
+                <h2>Water Body</h2>
+                <p class="muted">Pool is the startup default. IntelliCenter moves the 3-way valves for you.</p>
+              </div>
+              <button class="btn danger small" id="allOff">All Off</button>
             </div>
-            <button class="btn danger small" id="allOff">All Off</button>
-          </div>
-          <div class="mode-switch">
-            <button class="mode-btn active" id="modePool">
-              <span class="mode-icon pool-icon"></span>
-              <span>
-                <strong>Pool</strong>
-                <small>Pool drain / spa return</small>
-              </span>
-            </button>
-            <button class="mode-btn" id="modeSpa">
-              <span class="mode-icon spa-icon"></span>
-              <span>
-                <strong>Spa</strong>
-                <small>Spa drain / pool return</small>
-              </span>
-            </button>
-          </div>
-          <div class="body-stats">
-            <div class="stat">
-              <span class="stat-label">Pool water</span>
-              <span class="stat-value" id="poolTemp">--</span>
+            <div class="mode-switch">
+              <button class="mode-btn active" id="modePool">
+                <span class="mode-icon pool-icon"></span>
+                <span>
+                  <strong>Pool</strong>
+                  <small>Pool drain / spa return</small>
+                </span>
+              </button>
+              <button class="mode-btn" id="modeSpa">
+                <span class="mode-icon spa-icon"></span>
+                <span>
+                  <strong>Spa</strong>
+                  <small>Spa drain / pool return</small>
+                </span>
+              </button>
             </div>
-            <div class="stat">
-              <span class="stat-label">Spa water</span>
-              <span class="stat-value" id="spaTemp">--</span>
+            <div class="body-stats">
+              <div class="stat">
+                <span class="stat-label">Pool water</span>
+                <span class="stat-value" id="poolTemp">--</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Spa water</span>
+                <span class="stat-value" id="spaTemp">--</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Salt</span>
+                <span class="stat-value" id="saltLevel">--</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Valves</span>
+                <span class="stat-value small-value" id="valveText">--</span>
+              </div>
             </div>
-            <div class="stat">
-              <span class="stat-label">Salt</span>
-              <span class="stat-value" id="saltLevel">--</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Valves</span>
-              <span class="stat-value small-value" id="valveText">--</span>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="card">
-          <div class="card-head">
-            <div>
-              <h2>Variable Speed Pumps</h2>
-              <p class="muted">Main VSR circulates pool/spa. Features VSR runs with any water feature.</p>
+          <!-- Card: Variable Speed Pumps -->
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2>Variable Speed Pumps</h2>
+                <p class="muted">Main VSR circulates pool/spa. Features VSR runs with any water feature.</p>
+              </div>
             </div>
-          </div>
-          <div class="pump-grid">
-            <div class="pump-card" id="mainPumpCard">
-              <div class="pump-head">
-                <div>
-                  <strong>Main VSR</strong>
-                  <div class="pump-state" id="mainPumpState">Off</div>
+            <div class="pump-grid">
+              <div class="pump-card" id="mainPumpCard">
+                <div class="pump-head">
+                  <div>
+                    <strong>Main VSR</strong>
+                    <div class="pump-state" id="mainPumpState">Off</div>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="mainPumpToggle">
+                    <span class="slider"></span>
+                  </label>
                 </div>
-                <label class="switch">
-                  <input type="checkbox" id="mainPumpToggle">
-                  <span class="slider"></span>
-                </label>
-              </div>
-              <div class="rpm-row">
-                <input type="range" id="mainRpm" min="450" max="3450" step="25" value="2200">
-                <span class="rpm-value" id="mainRpmVal">2200 RPM</span>
-              </div>
-              <div class="pump-metrics" id="mainPumpMetrics">-- GPM / -- W</div>
-            </div>
-            <div class="pump-card" id="featuresPumpCard">
-              <div class="pump-head">
-                <div>
-                  <strong>Features VSR</strong>
-                  <div class="pump-state" id="featuresPumpState">Off</div>
+                <div class="rpm-row">
+                  <input type="range" id="mainRpm" min="450" max="3450" step="25" value="2200">
+                  <span class="rpm-value" id="mainRpmVal">2200 RPM</span>
                 </div>
-                <label class="switch">
-                  <input type="checkbox" id="featuresPumpToggle">
-                  <span class="slider"></span>
-                </label>
+                <div class="pump-metrics" id="mainPumpMetrics">-- GPM / -- W</div>
               </div>
-              <div class="rpm-row">
-                <input type="range" id="featuresRpm" min="450" max="3450" step="25" value="2800">
-                <span class="rpm-value" id="featuresRpmVal">2800 RPM</span>
-              </div>
-              <div class="pump-metrics" id="featuresPumpMetrics">-- GPM / -- W</div>
-            </div>
-          </div>
-        </section>
-
-        <section class="card">
-          <div class="card-head">
-            <div>
-              <h2>Water Features</h2>
-              <p class="muted">Any feature starts the secondary VSR pump automatically.</p>
-            </div>
-            <div class="head-actions">
-              <button class="btn small" id="featuresAllOn">All On</button>
-              <button class="btn small ghost" id="featuresAllOff">All Off</button>
-            </div>
-          </div>
-
-          <h3 class="group-title">Floor Jets (Deck Laminar Jets)</h3>
-          <div class="feature-grid" id="deckJets">
-            <!-- populated by app.js -->
-          </div>
-
-          <h3 class="group-title">Firebaskets &amp; Fountains</h3>
-          <div class="feature-grid" id="firebaskets">
-            <!-- populated by app.js -->
-          </div>
-
-          <h3 class="group-title">Blower</h3>
-          <div class="feature-grid">
-            <div class="feature-card" id="blowerCard">
-              <div class="feature-head">
-                <div>
-                  <div class="feature-title">Blower</div>
-                  <div class="feature-sub" id="blowerState">Off</div>
+              <div class="pump-card" id="featuresPumpCard">
+                <div class="pump-head">
+                  <div>
+                    <strong>Features VSR</strong>
+                    <div class="pump-state" id="featuresPumpState">Off</div>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="featuresPumpToggle">
+                    <span class="slider"></span>
+                  </label>
                 </div>
-                <label class="switch">
-                  <input type="checkbox" id="blowerToggle">
-                  <span class="slider"></span>
-                </label>
+                <div class="rpm-row">
+                  <input type="range" id="featuresRpm" min="450" max="3450" step="25" value="2800">
+                  <span class="rpm-value" id="featuresRpmVal">2800 RPM</span>
+                </div>
+                <div class="pump-metrics" id="featuresPumpMetrics">-- GPM / -- W</div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="card">
-          <div class="card-head">
-            <div>
-              <h2>Lights &amp; Heater</h2>
-              <p class="muted">Pentair color LEDs and the pool heater.</p>
+          <!-- Card: Lights & Heater -->
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2>Lights &amp; Heater</h2>
+                <p class="muted">Pentair color LEDs and the pool heater.</p>
+              </div>
             </div>
-          </div>
-          <div class="light-grid">
-            <div class="light-card" data-body="pool">
-              <div class="light-head">
-                <div>
-                  <strong>Pool LED</strong>
-                  <div class="pump-state" id="poolLightState">Off</div>
+            <div class="light-grid">
+              <div class="light-card" data-body="pool">
+                <div class="light-head">
+                  <div>
+                    <strong>Pool LED</strong>
+                    <div class="pump-state" id="poolLightState">Off</div>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="poolLightToggle">
+                    <span class="slider"></span>
+                  </label>
                 </div>
-                <label class="switch">
-                  <input type="checkbox" id="poolLightToggle">
-                  <span class="slider"></span>
-                </label>
+                <select id="poolEffect" class="select"></select>
               </div>
-              <select id="poolEffect" class="select"></select>
-            </div>
-            <div class="light-card" data-body="spa">
-              <div class="light-head">
-                <div>
-                  <strong>Spa LED</strong>
-                  <div class="pump-state" id="spaLightState">Off</div>
+              <div class="light-card" data-body="spa">
+                <div class="light-head">
+                  <div>
+                    <strong>Spa LED</strong>
+                    <div class="pump-state" id="spaLightState">Off</div>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="spaLightToggle">
+                    <span class="slider"></span>
+                  </label>
                 </div>
-                <label class="switch">
-                  <input type="checkbox" id="spaLightToggle">
-                  <span class="slider"></span>
-                </label>
+                <select id="spaEffect" class="select"></select>
               </div>
-              <select id="spaEffect" class="select"></select>
+            </div>
+            <div class="heater-row">
+              <div class="heater-info">
+                <div class="heater-title">
+                  <strong>Heater</strong>
+                  <span class="chip" id="heaterStatus">OFF</span>
+                </div>
+                <div class="muted" id="heaterBodyText">Heats the active body of water (On / Off)</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="heaterToggle">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </section>
+        </aside>
+
+        <!-- 2. CENTER COCKPIT VIEWPORT: 3D DIGITAL TWIN -->
+        <main class="cockpit-viewport-center">
+          <div class="viz-canvas-wrap">
+            <div class="viz-status-banner simulation" id="animConnBanner">
+              <span class="status-dot"></span>
+              <span id="animConnText">SIMULATION MODE</span>
+            </div>
+            <canvas id="poolCanvas"></canvas>
+            <div class="iguana-bubble" id="iguanaBubble">
+              <div class="iguana-name">IGGY THE IGUANA</div>
+              <div class="iguana-line" id="iguanaLine">I&rsquo;ve got one eye on the pool and one on the fountains.</div>
+            </div>
+            <div class="viz-legend">
+              <span><i class="dot water"></i> water</span>
+              <span><i class="dot fire"></i> fire</span>
+              <span><i class="dot led"></i> LED</span>
             </div>
           </div>
-          <div class="heater-row">
-            <div class="heater-info">
-              <div class="heater-title">
-                <strong>Heater</strong>
-                <span class="chip" id="heaterStatus">OFF</span>
-              </div>
-              <div class="muted" id="heaterBodyText">Heats the active body of water (On / Off)</div>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="heaterToggle">
-              <span class="slider"></span>
-            </label>
+
+          <!-- Bottom HUD Stats Overlay -->
+          <div class="viz-stats">
+            <div><span>Mode</span><strong id="vizMode" class="chip live" style="padding:2px 8px; font-size:0.75rem;">POOL</strong></div>
+            <div><span>Pool Temp</span><strong id="vizPool">--</strong></div>
+            <div><span>Spa Temp</span><strong id="vizSpa">--</strong></div>
+            <div><span>Main VSR</span><strong id="vizMain">--</strong></div>
+            <div><span>Features VSR</span><strong id="vizFeatures">--</strong></div>
           </div>
-        </section>
+        </main>
+
+        <!-- 3. RIGHT COCKPIT PANEL: WEBCAM, FEATURES, TELEMETRY, QUICK SCENES -->
+        <aside class="cockpit-panel-right">
+          <!-- Live Pool Webcam Card -->
+          <section class="card pool-video-card" id="poolVideoCard">
+            <div class="card-head">
+              <div>
+                <h2>Live Pool Webcam</h2>
+                <p class="muted">Live view facing the pool</p>
+              </div>
+              <div class="live-pill"><span class="status-dot"></span> LIVE</div>
+            </div>
+            <div class="pool-video-stage">
+              <img id="poolLiveVideo" src="/api/camera/snapshot" alt="Live Pool Camera" class="pool-camera-feed">
+              <div class="video-overlay-bar">
+                <span>2732 NE 23RD AVE &middot; POOL CAM</span>
+                <span id="camStatusText">LIVE</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Water Features & Aux Relays Card -->
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2>Water Features &amp; Aux</h2>
+                <p class="muted">Starts the secondary VSR pump automatically.</p>
+              </div>
+              <div class="head-actions">
+                <button class="btn small" id="featuresAllOn">All On</button>
+                <button class="btn small ghost" id="featuresAllOff">All Off</button>
+              </div>
+            </div>
+
+            <h3 class="group-title" style="margin-top:4px;">Floor Jets (Deck Laminars)</h3>
+            <div class="feature-grid" id="deckJets">
+              <!-- populated by app.js -->
+            </div>
+
+            <h3 class="group-title">Firebaskets &amp; Fountains</h3>
+            <div class="feature-grid" id="firebaskets">
+              <!-- populated by app.js -->
+            </div>
+
+            <h3 class="group-title">Spa Air Blower</h3>
+            <div class="feature-grid">
+              <div class="feature-card" id="blowerCard">
+                <div class="feature-head">
+                  <div>
+                    <div class="feature-title">Blower</div>
+                    <div class="feature-sub" id="blowerState">Off</div>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="blowerToggle">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Live Telemetry & Statistics Card -->
+          <section class="card" style="padding:14px;">
+            <div class="viz-info" id="vizInfo">
+              <div class="viz-info-head">
+                <div class="viz-info-title">
+                  <span class="stat-dot-pulse"></span>
+                  <strong>Live Telemetry &amp; Statistics</strong>
+                </div>
+              </div>
+              <div class="viz-info-grid">
+                <div class="viz-info-row"><span>Mode</span><b id="infoMode">Pool</b></div>
+                <div class="viz-info-row"><span>Pool / Spa</span><b id="infoTemps">-- / --</b></div>
+                <div class="viz-info-row"><span>Salt</span><b id="infoSalt">--</b></div>
+                <div class="viz-info-row"><span>Main VSR</span><b id="infoMain">--</b></div>
+                <div class="viz-info-row"><span>Features VSR</span><b id="infoFeatures">--</b></div>
+                <div class="viz-info-row"><span>Lights</span><b id="infoLights">--</b></div>
+                <div class="viz-info-row"><span>Heater</span><b id="infoHeater">--</b></div>
+                <div class="viz-info-row"><span>Water features</span><b id="infoWater">--</b></div>
+                <div class="viz-info-row"><span>Valves</span><b id="infoValves">--</b></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Quick Scenes Card -->
+          <section class="card quick-card">
+            <div class="card-head">
+              <div>
+                <h2>Quick Scenes</h2>
+                <p class="muted">One-tap lighting and hydraulics combinations.</p>
+              </div>
+            </div>
+            <div class="scene-grid">
+              <button class="scene" data-scene="evening">Evening Pool</button>
+              <button class="scene" data-scene="spa">Spa Escape</button>
+              <button class="scene" data-scene="show">Water &amp; Fire Show</button>
+              <button class="scene" data-scene="off">Everything Off</button>
+            </div>
+          </section>
+        </aside>
       </div>
 
       <!-- SCHEDULE -->
@@ -2562,114 +2661,7 @@ sudo systemctl enable --now cloudflared</code></pre>
     </section>
 
     <!-- RIGHT: 3D visualization, upper right -->
-    <aside class="viz-column">
-      <section class="viz-card">
-        <div class="viz-head">
-          <div>
-            <h2>Pool &amp; Spa</h2>
-            <span class="muted" id="vizHint">Drag to orbit &middot; scroll to zoom</span>
-          </div>
-          <div class="viz-badges">
-            <span class="chip simulation" id="vizConnChip">SIMULATION</span>
-            <span class="chip live" id="vizMode">POOL</span>
-          </div>
-        </div>
-
-        <!-- Position slot for 'above' -->
-        <div id="vizInfoSlotAbove" class="viz-info-slot"></div>
-
-        <div class="viz-body-layout" id="vizBodyLayout">
-          <div class="viz-canvas-wrap">
-            <div class="viz-status-banner simulation" id="animConnBanner">
-              <span class="status-dot"></span>
-              <span id="animConnText">SIMULATION MODE</span>
-            </div>
-            <canvas id="poolCanvas"></canvas>
-            <div class="iguana-bubble" id="iguanaBubble">
-              <div class="iguana-name">IGGY THE IGUANA</div>
-              <div class="iguana-line" id="iguanaLine">I&rsquo;ve got one eye on the pool and one on the fountains.</div>
-            </div>
-            <div class="viz-legend">
-              <span><i class="dot water"></i> water</span>
-              <span><i class="dot fire"></i> fire</span>
-              <span><i class="dot led"></i> LED</span>
-            </div>
-          </div>
-
-          <!-- Position slot for 'side' -->
-          <div id="vizInfoSlotSide" class="viz-info-slot"></div>
-        </div>
-
-        <!-- Position slot for 'below' (DEFAULT - off the animation) -->
-        <div id="vizInfoSlotBelow" class="viz-info-slot">
-          <div class="viz-info" id="vizInfo">
-            <div class="viz-info-head">
-              <div class="viz-info-title">
-                <span class="stat-dot-pulse"></span>
-                <strong>Live Telemetry &amp; Statistics</strong>
-              </div>
-              <div class="viz-info-pos-pills" id="vizInfoPosPills">
-                <span class="pos-label">Position:</span>
-                <button type="button" class="pos-pill active" data-pos="below" title="Place statistics below the animation">Below</button>
-                <button type="button" class="pos-pill" data-pos="above" title="Place statistics above the animation">Above</button>
-                <button type="button" class="pos-pill" data-pos="side" title="Place statistics beside the animation">Side</button>
-              </div>
-            </div>
-            <div class="viz-info-grid">
-              <div class="viz-info-row"><span>Mode</span><b id="infoMode">Pool</b></div>
-              <div class="viz-info-row"><span>Pool / Spa</span><b id="infoTemps">-- / --</b></div>
-              <div class="viz-info-row"><span>Salt</span><b id="infoSalt">--</b></div>
-              <div class="viz-info-row"><span>Main VSR</span><b id="infoMain">--</b></div>
-              <div class="viz-info-row"><span>Features VSR</span><b id="infoFeatures">--</b></div>
-              <div class="viz-info-row"><span>Lights</span><b id="infoLights">--</b></div>
-              <div class="viz-info-row"><span>Heater</span><b id="infoHeater">--</b></div>
-              <div class="viz-info-row"><span>Water features</span><b id="infoWater">--</b></div>
-              <div class="viz-info-row"><span>Valves</span><b id="infoValves">--</b></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="viz-stats">
-          <div><span>Pool</span><strong id="vizPool">--</strong></div>
-          <div><span>Spa</span><strong id="vizSpa">--</strong></div>
-          <div><span>Main</span><strong id="vizMain">--</strong></div>
-          <div><span>Features</span><strong id="vizFeatures">--</strong></div>
-        </div>
-      </section>
-
-      <section class="card pool-video-card" id="poolVideoCard">
-        <div class="card-head">
-          <div>
-            <h2>Live Pool Webcam</h2>
-            <p class="muted">Live view facing the pool</p>
-          </div>
-          <div class="live-pill"><span class="status-dot"></span> LIVE</div>
-        </div>
-        <div class="pool-video-stage">
-          <img id="poolLiveVideo" src="/api/camera/snapshot" alt="Live Pool Camera" class="pool-camera-feed">
-          <div class="video-overlay-bar">
-            <span>2732 NE 23RD AVE &middot; POOL CAM</span>
-            <span id="camStatusText">LIVE</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="card quick-card">
-        <div class="card-head">
-          <div>
-            <h2>Quick Scene</h2>
-            <p class="muted">One-tap combinations.</p>
-          </div>
-        </div>
-        <div class="scene-grid">
-          <button class="scene" data-scene="evening">Evening Pool</button>
-          <button class="scene" data-scene="spa">Spa Escape</button>
-          <button class="scene" data-scene="show">Water &amp; Fire Show</button>
-          <button class="scene" data-scene="off">Everything Off</button>
-        </div>
-      </section>
-    </aside>
-  </main>
+    </main>
 
   <!-- Modal: Add Device -->
   <div class="modal-backdrop" id="addDeviceModal" style="display: none;">

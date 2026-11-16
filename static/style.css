@@ -2116,3 +2116,158 @@ select option { background: #09202c; color: var(--text); }
   font-size: 0.75rem;
   padding: 5px 10px;
 }
+
+
+/* ===================================================================
+   3-COLUMN COCKPIT LAYOUT FOR FIRST PAGE (CONTROL VIEW)
+   =================================================================== */
+.app-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 6px 16px !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
+  background: rgba(4, 17, 26, 0.95) !important;
+  border-bottom: 1px solid var(--line) !important;
+  backdrop-filter: blur(18px) !important;
+  box-sizing: border-box !important;
+}
+
+.app-header .tabs {
+  margin: 0 !important;
+  padding: 3px !important;
+  background: rgba(7, 24, 35, 0.8) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  gap: 3px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  scrollbar-width: none !important;
+}
+.app-header .tabs::-webkit-scrollbar {
+  display: none !important;
+}
+
+.layout {
+  display: block !important;
+  padding: 10px 14px 24px !important;
+  max-width: 1920px !important;
+  margin: 0 auto !important;
+  position: relative !important;
+  box-sizing: border-box !important;
+}
+
+/* 3-Column Cockpit Grid */
+#view-control.active {
+  display: grid !important;
+  grid-template-columns: 340px minmax(420px, 1fr) 360px !important;
+  gap: 14px !important;
+  height: calc(100vh - 72px) !important;
+  max-height: calc(100vh - 72px) !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+.cockpit-panel-left,
+.cockpit-panel-right {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(0, 240, 255, 0.3) transparent !important;
+  padding-right: 4px !important;
+}
+
+.cockpit-panel-left::-webkit-scrollbar,
+.cockpit-panel-right::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.cockpit-panel-left::-webkit-scrollbar-thumb,
+.cockpit-panel-right::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.3) !important;
+  border-radius: 4px !important;
+}
+
+.cockpit-viewport-center {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(0, 240, 255, 0.35) !important;
+  background: #020912 !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+  min-height: 400px !important;
+  height: 100% !important;
+}
+
+.cockpit-viewport-center .viz-canvas-wrap {
+  flex: 1 !important;
+  position: relative !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+.cockpit-viewport-center #poolCanvas {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+
+.cockpit-viewport-center .viz-stats {
+  position: absolute !important;
+  bottom: 12px !important;
+  left: 12px !important;
+  right: 12px !important;
+  z-index: 10 !important;
+  display: flex !important;
+  justify-content: space-around !important;
+  background: rgba(4, 18, 28, 0.88) !important;
+  backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(0, 240, 255, 0.3) !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+}
+
+/* Responsive adjustment for laptops & tablets */
+@media (max-width: 1180px) {
+  #view-control.active {
+    grid-template-columns: 320px 1fr !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+  }
+  .cockpit-panel-right {
+    grid-column: 1 / -1 !important;
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important;
+    overflow: visible !important;
+  }
+  .cockpit-viewport-center {
+    height: 480px !important;
+    min-height: 480px !important;
+  }
+}
+
+@media (max-width: 820px) {
+  #view-control.active {
+    grid-template-columns: 1fr !important;
+  }
+  .cockpit-viewport-center {
+    height: 380px !important;
+    min-height: 380px !important;
+  }
+}
