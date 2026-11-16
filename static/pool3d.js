@@ -208,6 +208,54 @@
   wfMesh.rotation.y = -Math.PI / 4;
   spaGroup.add(wfMesh);
 
+  // ------------------------------------------------------------------
+  // Stairs (+z is south, -x is west)
+  // ------------------------------------------------------------------
+  // The water is nearly opaque and its waves dip below the shell top, so
+  // submerged treads are drawn as translucent overlays just above the wave
+  // crests, fading with depth, with white edge tiles on each step nose.
+  function addSubmergedSteps(parent, x0, x1, zEdge, treadDepth, y, opacities) {
+    var width = x1 - x0;
+    var cx = (x0 + x1) / 2;
+    opacities.forEach(function (opacity, i) {
+      var zFar = zEdge - treadDepth * i;
+      var zNear = zFar - treadDepth;
+      var tread = new THREE.Mesh(new THREE.PlaneGeometry(width, treadDepth),
+        new THREE.MeshBasicMaterial({
+          color: 0xd8fbff, transparent: true, opacity: opacity, depthWrite: false
+        }));
+      tread.rotation.x = -Math.PI / 2;
+      tread.position.set(cx, y, (zFar + zNear) / 2);
+      parent.add(tread);
+      var nose = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.07),
+        new THREE.MeshBasicMaterial({
+          color: 0xffffff, transparent: true, opacity: Math.min(0.95, opacity + 0.4),
+          depthWrite: false
+        }));
+      nose.rotation.x = -Math.PI / 2;
+      nose.position.set(cx, y + 0.002, zNear + 0.035);
+      parent.add(nose);
+    });
+  }
+
+  // Pool: three entry steps in the southwest corner, along the south wall
+  addSubmergedSteps(scene, POOL.x - POOL.w / 2, POOL.x - POOL.w / 2 + 2.2,
+    POOL.z + POOL.d / 2, 0.5, POOL.y + 0.075, [0.5, 0.34, 0.2]);
+
+  // Spa: deck steps up the south face of the raised platform...
+  var spaPlatformSouth = 0.3 + (SPA.d + 1.2) / 2;
+  for (var si = 1; si <= 3; si++) {
+    var stepH = 0.2 * si;
+    var stepD = 0.35 * (4 - si);
+    addBoxLocal(spaGroup, 1.6, stepH, stepD, deckMat2,
+      0, stepH / 2, spaPlatformSouth + stepD / 2);
+    addBoxLocal(spaGroup, 1.6, 0.03, 0.08, copingMat,
+      0, stepH + 0.015, spaPlatformSouth + stepD - 0.04);
+  }
+  // ...and a bench step down into the water inside the south wall
+  addSubmergedSteps(spaGroup, -0.8, 0.8, SPA.d / 2 - 0.17, 0.45,
+    SPA.y + 0.175, [0.42]);
+
   var isPoolMode = true;
   var waterfallIntensity = 1.0;
 
@@ -472,8 +520,8 @@
   // Firebaskets flanking the Southeast pool corner (each has 2 spillways)
   // ------------------------------------------------------------------
   var basketDefs = {
-    east: { x: 3.20, z: 5.05, poolAngle: Math.PI, spaAngle: 0 },
-    west: { x: 1.85, z: 6.40, poolAngle: -Math.PI / 2, spaAngle: Math.PI / 2 }
+    east: { x: 3.20, z: 5.05, poolAngle: Math.PI, spaAngle: 0, labelOffset: [1.9, 0.2] },
+    west: { x: 1.85, z: 6.40, poolAngle: -Math.PI / 2, spaAngle: Math.PI / 2, labelOffset: [-1.25, 1.25] }
   };
   var baskets = {};
 
@@ -548,7 +596,9 @@
     var spaSpill = makeSpillway(def.spaAngle);
 
     var label = makeLabel(key === "east" ? "FB EAST OFF" : "FB WEST OFF", "#ffcf9a");
-    label.position.set(0, 2.15, 0);
+    // The baskets sit ~1.9 apart, closer than a label is wide, so push each
+    // label outward (away from the spa) to keep them from overlapping.
+    label.position.set(def.labelOffset[0], 2.15, def.labelOffset[1]);
     group.add(label);
 
     baskets[key] = {

@@ -2187,6 +2187,25 @@ select option { background: #09202c; color: var(--text); }
   padding-right: 4px !important;
 }
 
+.cockpit-panel-left > *,
+.cockpit-panel-right > * {
+  flex-shrink: 0 !important;
+}
+
+.cockpit-panel-left .body-stats {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: 8px;
+}
+.cockpit-panel-left .body-stats .stat { padding: 9px 9px; }
+.cockpit-panel-left .body-stats .stat-value { font-size: 0.95rem; }
+.cockpit-panel-left .body-stats .stat:has(#valveText) { grid-column: 1 / -1; }
+.cockpit-panel-left .pump-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.cockpit-panel-left .body-stats #valveText {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.35;
+}
+
 .cockpit-panel-left::-webkit-scrollbar,
 .cockpit-panel-right::-webkit-scrollbar {
   width: 4px !important;
