@@ -23,19 +23,19 @@
       "spa": "SPA"
     },
     "pumps": {
-      "main": "MAIN PUMP",
-      "features": "FEATURES PUMP"
+      "main": "VSF",
+      "features": "VS"
     },
     "pump_programs": {
-      "main": "MAIN PUMP",
-      "features": "FEATURES PUMP"
+      "main": "p0201",
+      "features": "p0101"
     },
     "deck_jets": {
       "ne": {
         "water": "NE Floor Jet"
       },
       "nw": {
-        "water": "NW Floor Jet"
+        "water": "NW Floot Jet"
       },
       "se": {
         "water": "SE Floor Jet"
@@ -58,22 +58,22 @@
       "circuit": "Blower"
     },
     "lights": {
-      "pool": "POOL LIGHT",
-      "spa": "SPA LIGHT"
+      "pool": "Lights",
+      "spa": ""
     },
     "heater": {
-      "body": "POOL",
-      "device": "HEATER"
+      "body": "Pool",
+      "device": "Heat Pump"
     },
     "valves": {
-      "drain": "Pool/Spa Drain Valve",
-      "return": "Pool/Spa Return Valve"
+      "drain": "Intake",
+      "return": "Return"
     }
   },
   "defaults": {
     "mode": "pool",
-    "main_rpm": 2200,
-    "features_rpm": 2800,
+    "main_rpm": 3350,
+    "features_rpm": 2050,
     "pool_setpoint": 84,
     "salt_ppm": 3200,
     "light_effect": "BLUER",
@@ -96,7 +96,7 @@
         ],
         "start": "08:00",
         "end": "18:00",
-        "rpm": 2200
+        "rpm": 3350
       }
     ]
   },

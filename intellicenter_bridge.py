@@ -236,7 +236,7 @@ class IntelliCenterBridge:
             LOG.info("IntelliCenter write (%s): %s", reason, ops)
             return True, result
         except Exception as exc:
-            LOG.warning("IntelliCenter write failed (%s): %s", reason, exc)
+            LOG.warning("IntelliCenter write failed (%s): %s %s", reason, exc, ops)
             with self._lock:
                 self._last_error = str(exc)
             return False, str(exc)
@@ -536,7 +536,8 @@ class IntelliCenterBridge:
         model = PoolModel()
         controller = ICModelController(
             self._host,
-            self._port,
+            model,
+            port=self._port,
             transport=self._transport,
         )
         handler = ICConnectionHandler(controller)

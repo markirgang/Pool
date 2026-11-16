@@ -1311,11 +1311,12 @@ class PoolController:
         if not objnam:
             return
         objtype = self._objtypes.get(objnam)
-        if objtype == "PUMP":
-            value = "10" if on else "4"
-        else:
-            value = "ON" if on else "OFF"
-        changes.setdefault(objnam, {})["STATUS"] = value
+        pumps = (self.bridge.resolved().get("pumps") or {}).values()
+        if objtype == "PUMP" or objnam in pumps:
+            # IntelliCenter rejects STATUS writes to pumps (error 404); pumps
+            # run automatically whenever a circuit they serve is on.
+            return
+        changes.setdefault(objnam, {})["STATUS"] = "ON" if on else "OFF"
 
     def _power_led(self, changes: dict[str, dict[str, Any]], objnam: str,
                    on: bool, effect: str | None = None) -> None:
