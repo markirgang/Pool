@@ -1,0 +1,5 @@
+# Let the pool app (running as a normal user in the plugdev group) send
+# tracking/privacy commands to the EMEET PIXY over its vendor HID interface.
+# Install: sudo cp udev/99-emeet-pixy.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="328f", ATTRS{idProduct}=="00c0", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="328f", ATTRS{idProduct}=="0118", MODE="0660", GROUP="plugdev", TAG+="uaccess"

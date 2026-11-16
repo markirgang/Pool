@@ -61,7 +61,8 @@ def _parse_devices(output: str, kind: str) -> list[dict[str, str]]:
             dev_desc.strip() or dev_name.strip(),
         )
         devices.append({
-            "id": "plughw:%s,%s" % (card, device),
+            # Card names are stable across reboots/replugs; numbers are not.
+            "id": "plughw:CARD=%s,DEV=%s" % (card_name.strip(), device),
             "name": label,
             "kind": kind,
         })
@@ -163,15 +164,21 @@ class LocalAudio:
             return ""
 
     def _resolve_input(self, device: str) -> str:
-        if device and device != "default":
-            return device
         captures = _parse_devices(
             self._command_output(["arecord", "-l"]), "input"
         ) if shutil.which("arecord") else []
-        for c in captures:
-            name_lower = c["name"].lower()
-            if "pixy" in name_lower or "emeet" in name_lower or "webcam" in name_lower or "usb" in name_lower:
-                return c["id"]
+        ids = {c["id"] for c in captures}
+        # An explicit device is used as long as it is present; a missing card
+        # (e.g. the webcam unplugged) falls back to auto-selection.
+        if device and device != "default":
+            if device in ids or "CARD=" not in device:
+                return device
+        # Prefer the EMEET PIXY webcam mic, then any other webcam/USB mic.
+        for keywords in (("pixy", "emeet"), ("webcam", "usb")):
+            for c in captures:
+                name_lower = c["name"].lower()
+                if any(k in name_lower for k in keywords):
+                    return c["id"]
         return captures[1]["id"] if len(captures) > 1 else device or "default"
 
     def _resolve_output(self, device: str) -> str:
@@ -248,10 +255,11 @@ class LocalAudio:
                 self._stop.wait(3.0)
                 continue
             self._mic_proc = proc
+            if device != self._active_input:
+                LOG.info("Local microphone open on %s", device)
             self._active_input = device
-            LOG.info("Local microphone open on %s", device)
             threshold = int(cfg.get("speech_rms", 450))
-            silence_needed = int(cfg.get("silence_ms", 2000)) / 1000.0
+            silence_needed = int(cfg.get("silence_ms", 1000)) / 1000.0
             min_speech = int(cfg.get("min_speech_ms", 350)) / 1000.0
             max_record = int(cfg.get("max_record_seconds", 8))
             pre_roll: list[bytes] = []
@@ -264,6 +272,8 @@ class LocalAudio:
                 if not data:
                     self._last_error = "Microphone stream ended"
                     break
+                if self._last_error == "Microphone stream ended":
+                    self._last_error = ""
                 if self.is_speaking():
                     pre_roll.clear()
                     frames = []
@@ -271,6 +281,10 @@ class LocalAudio:
                     speech_seconds = 0.0
                     silence_seconds = 0.0
                     continue
+                # Re-read so the sensitivity slider takes effect immediately.
+                cfg = self._local_cfg()
+                threshold = int(cfg.get("speech_rms", 450))
+                silence_needed = int(cfg.get("silence_ms", 1000)) / 1000.0
                 cur_rms = _rms(data)
                 self._current_rms = cur_rms
                 voiced = cur_rms >= threshold

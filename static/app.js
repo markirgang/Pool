@@ -63,10 +63,90 @@
     var text = await response.text();
     var data = null;
     try { data = text ? JSON.parse(text) : null; } catch (err) { data = { error: text }; }
+    if (response.status === 401 && data && data.login_required) {
+      applyAuth({ configured: authState.configured, logged_in: false });
+      openLogin();
+    }
     if (!response.ok) {
       throw new Error((data && (data.error || data.message)) || ("HTTP " + response.status));
     }
     return data;
+  }
+
+  // ------------------------------------------------------------------
+  // Login: status is public; the camera and every control need a login.
+  // ------------------------------------------------------------------
+  var authState = { configured: true, logged_in: false, username: null };
+
+  function applyAuth(next) {
+    var was = authState.logged_in;
+    authState = Object.assign({}, authState, next || {});
+    document.body.classList.toggle("logged-out", !authState.logged_in);
+    var btn = $("authBtn");
+    if (btn) {
+      btn.textContent = authState.logged_in
+        ? "Log out" + (authState.username ? " (" + authState.username + ")" : "")
+        : "Log in";
+      btn.classList.toggle("logged-in", !!authState.logged_in);
+    }
+    if (!authState.logged_in) {
+      ["poolLiveVideo", "localCameraPreview"].forEach(function (id) {
+        var img = $(id);
+        if (img) img.removeAttribute("src");
+      });
+      if ($("camStatusText")) $("camStatusText").textContent = "LOCKED";
+    } else if (!was) {
+      refreshLocalSnapshot();
+    }
+  }
+
+  async function checkAuth() {
+    try {
+      applyAuth(await api("/api/auth"));
+    } catch (e) {
+      applyAuth({ logged_in: false });
+    }
+  }
+
+  function openLogin() {
+    var modal = $("loginModal");
+    if (!modal || modal.style.display === "grid") return;
+    $("loginError").textContent = authState.configured ? ""
+      : "No login is set up yet. On the Pi, run: .venv/bin/python auth.py";
+    modal.style.display = "grid";
+    setTimeout(function () { if ($("loginUser")) $("loginUser").focus(); }, 30);
+  }
+
+  function closeLogin() {
+    if ($("loginModal")) $("loginModal").style.display = "none";
+    if ($("loginPass")) $("loginPass").value = "";
+  }
+
+  function bindAuth() {
+    $("authBtn").addEventListener("click", async function () {
+      if (!authState.logged_in) { openLogin(); return; }
+      try { await api("/api/logout", { method: "POST" }); } catch (e) {}
+      applyAuth({ logged_in: false, username: null });
+      toast("Logged out", "good");
+    });
+    $("closeLoginModal").addEventListener("click", closeLogin);
+    $("cancelLogin").addEventListener("click", closeLogin);
+    $("loginForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      $("loginError").textContent = "";
+      try {
+        var res = await api("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: $("loginUser").value, password: $("loginPass").value })
+        });
+        closeLogin();
+        applyAuth({ configured: true, logged_in: true, username: res.username });
+        toast("Logged in", "good");
+      } catch (err) {
+        $("loginError").textContent = err.message;
+      }
+    });
   }
 
   async function command(action, payload) {
@@ -604,6 +684,29 @@
   var vuPollTimer = null;
   var micSensitivityPercent = parseInt(localStorage.getItem("pool.micSensitivity") || "70", 10);
 
+  function micSource() {
+    return ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
+  }
+
+  // Meter and threshold share one scale: 16-bit RMS in dBFS, -60 dB = 0%.
+  function rmsToPct(rms) {
+    if (!rms || rms <= 0) return 0;
+    var db = 20 * Math.log10(rms / 32768);
+    return Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
+  }
+
+  function sensitivityToRms(percent) {
+    return Math.round(1000 - (percent / 100) * 800);
+  }
+
+  function setVuThreshold(rms) {
+    var pos = Math.round(rmsToPct(rms));
+    ["voiceVuThresh", "hwVuThresh"].forEach(function (id) {
+      var th = document.getElementById(id);
+      if (th) th.style.left = pos + "%";
+    });
+  }
+
   function updateVuMeter(level) {
     var val = Math.max(0, Math.min(100, Math.round(level)));
     var fills = [document.getElementById("voiceVuFill"), document.getElementById("hwVuFill")];
@@ -624,14 +727,10 @@
       if (v) v.textContent = micSensitivityPercent + "%";
     });
 
-    var threshPos = Math.round(100 - (micSensitivityPercent - 10) * (75 / 90));
-    ["voiceVuThresh", "hwVuThresh"].forEach(function (id) {
-      var th = document.getElementById(id);
-      if (th) th.style.left = threshPos + "%";
-    });
+    setVuThreshold(sensitivityToRms(micSensitivityPercent));
 
     if (sendServer) {
-      var rms = Math.round(1000 - (micSensitivityPercent / 100) * 800);
+      var rms = sensitivityToRms(micSensitivityPercent);
       api("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -664,9 +763,9 @@
           sum += dev * dev;
         }
         var rms = Math.sqrt(sum / timeData.length);
-        var mult = 2.4 + (micSensitivityPercent / 30.0);
-        var lvl = Math.min(100, Math.round(rms * mult * 100));
-        updateVuMeter(lvl);
+        if (micSource() === "browser" || (recorder && recorder.state === "recording")) {
+          updateVuMeter(rmsToPct(rms * 32768));
+        }
         vuAnimId = requestAnimationFrame(loop);
       }
       if (vuAnimId) cancelAnimationFrame(vuAnimId);
@@ -677,6 +776,7 @@
   var browserMicStream = null;
 
   async function ensureBrowserMicMonitor() {
+    if (micSource() !== "browser") return;
     if (browserMicStream) {
       if (vuAudioCtx && vuAudioCtx.state === "suspended") vuAudioCtx.resume();
       return;
@@ -697,14 +797,12 @@
   }
 
   async function pollLocalAudioStatus() {
-    if (browserMicStream) return;
+    if (micSource() === "browser") return;
     if (recorder && recorder.state === "recording") return;
     try {
       var stat = await api("/api/audio/status");
       if (stat && stat.rms !== undefined) {
-        var maxRms = stat.speech_rms ? stat.speech_rms * 1.8 : 800;
-        var lvl = Math.min(100, Math.round((stat.rms / maxRms) * 100));
-        updateVuMeter(lvl);
+        updateVuMeter(rmsToPct(stat.rms));
       }
     } catch (e) {}
   }
@@ -926,7 +1024,7 @@
       fillSelect($("localMic"), localAudio.inputs, "System default microphone", localMic);
       fillSelect($("localSpeaker"), localAudio.outputs, "System default speaker", localSpk);
 
-      var savedVoiceSource = localStorage.getItem("pool.voiceSource") || browserCfg.voice_source || "local";
+      var savedVoiceSource = localStorage.getItem("pool.micSource") || browserCfg.voice_source || "local";
       var savedSpeakerDest = localStorage.getItem("pool.speakerDest") || browserCfg.speaker_dest || "both";
       if ($("sourceLocalMic")) $("sourceLocalMic").checked = (savedVoiceSource === "local");
       if ($("sourceBrowserMic")) $("sourceBrowserMic").checked = (savedVoiceSource === "browser");
@@ -980,8 +1078,6 @@
       localStorage.setItem("pool.serverVoice", payload.assistant.server_voice);
       localStorage.setItem("pool.rate", payload.assistant.rate);
       localStorage.setItem("pool.pitch", payload.assistant.pitch);
-      var vs = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
-      localStorage.setItem("pool.voiceSource", vs);
       toast("Iggy personality and voice saved", "good");
     } catch (err) {
       toast("Could not save personality: " + err.message, "error");
@@ -992,7 +1088,7 @@
     var voiceSource = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
     var speakerDest = ($("destLocalSpeaker") && $("destLocalSpeaker").checked) ? "local"
       : (($("destBrowserSpeaker") && $("destBrowserSpeaker").checked) ? "browser" : "both");
-    var rms = Math.round(1000 - (micSensitivityPercent / 100) * 800);
+    var rms = sensitivityToRms(micSensitivityPercent);
 
     var payload = {
       audio: {
@@ -1017,7 +1113,7 @@
       });
       localStorage.setItem("pool.micDevice", payload.audio.browser.mic_device);
       localStorage.setItem("pool.speakerDevice", payload.audio.browser.speaker_device);
-      localStorage.setItem("pool.voiceSource", voiceSource);
+      localStorage.setItem("pool.micSource", voiceSource);
       localStorage.setItem("pool.speakerDest", speakerDest);
       localStorage.setItem("pool.micSensitivity", micSensitivityPercent);
       if (config) {
@@ -1160,7 +1256,7 @@
 
   function refreshLocalSnapshot() {
     var img = $("localCameraPreview");
-    if (!img) return;
+    if (!img || !authState.logged_in) return;
     img.onerror = function () { img.removeAttribute("src"); };
     img.src = "/api/camera/snapshot?t=" + Date.now();
   }
@@ -3293,7 +3389,8 @@
       if (r) {
         r.addEventListener("change", function () {
           var val = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
-          localStorage.setItem("pool.voiceSource", val);
+          localStorage.setItem("pool.micSource", val);
+          if (val === "browser") ensureBrowserMicMonitor(); else stopBrowserVu();
         });
       }
     });
@@ -3641,9 +3738,13 @@
 
     function refreshFrame() {
       if (!active) return;
+      if (!authState.logged_in) {
+        setTimeout(refreshFrame, 1000);
+        return;
+      }
       var nextImg = new Image();
       nextImg.onload = function () {
-        if (!active) return;
+        if (!active || !authState.logged_in) return setTimeout(refreshFrame, 1000);
         img.src = nextImg.src;
         if ($("camStatusText")) $("camStatusText").textContent = "LIVE";
         setTimeout(refreshFrame, 400);
@@ -3659,6 +3760,9 @@
   }
 
   function init() {
+    bindAuth();
+    applyAuth({ logged_in: false });
+    checkAuth();
     bind();
     populateBrowserVoices();
     startLivePoolCamera();

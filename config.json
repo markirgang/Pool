@@ -114,24 +114,26 @@
   },
   "audio": {
     "local": {
-      "input_device": "default",
+      "input_device": "plughw:CARD=PIXY,DEV=0",
       "output_device": "default",
       "speech_rms": 650,
-      "silence_ms": 2000,
+      "silence_ms": 1000,
       "min_speech_ms": 350,
-      "max_record_seconds": 8
+      "max_record_seconds": 8,
+      "auto_transcribe": true
     },
     "browser": {
       "mic_device": "",
       "speaker_device": "",
-      "voice_source": "browser"
+      "voice_source": "local"
     }
   },
   "camera": {
     "local": {
       "device": "auto",
       "width": 1280,
-      "vision_on_voice": true
+      "vision_on_voice": true,
+      "pixy_mode": "tracking"
     },
     "browser": {
       "device": ""

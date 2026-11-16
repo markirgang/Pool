@@ -2290,3 +2290,29 @@ select option { background: #09202c; color: var(--text); }
     min-height: 380px !important;
   }
 }
+
+/* Login: viewing is public; the camera and all controls need a login.
+   The server enforces this too; these styles just make it visible. */
+.pool-video-stage { position: relative; }
+.video-locked {
+  display: none;
+  position: absolute;
+  inset: 0;
+  place-items: center;
+  background: rgba(4, 17, 26, 0.92);
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-radius: inherit;
+  z-index: 2;
+}
+body.logged-out .video-locked { display: grid; }
+body.logged-out .pool-camera-feed { visibility: hidden; }
+body.logged-out .view :is(button, input, select, textarea, .switch, .mode-btn) {
+  pointer-events: none !important;
+  opacity: 0.5;
+}
+#authBtn.logged-in { border-color: rgba(98, 230, 166, 0.45); color: var(--green); }
+.login-dialog { max-width: 420px; width: calc(100vw - 32px); }
+.login-grid { grid-template-columns: 1fr; }
+.login-error { min-height: 1.2em; margin-top: 10px; color: #ffb4b4; font-size: 0.85rem; }

@@ -7,6 +7,7 @@ import glob
 import logging
 import os
 import subprocess
+import threading
 import time
 import urllib.request
 from typing import Any
@@ -15,6 +16,109 @@ LOG = logging.getLogger("pool.camera")
 
 _SKIP_NAMES = ("rpi-hevc-dec", "pispbe", "bcm2835", "unicam")
 
+# EMEET PIXY vendor HID protocol (as used by EMEET Studio; documented by
+# github.com/LarsArtmann/emeet-pixyd): a 9-byte config report, a 200 ms
+# pause, then a 4-byte commit report, each zero-padded to 32 bytes.
+_PIXY_HID_IDS = ("0000328F:000000C0", "0000328F:00000118")  # PIXY, PIXY 2K
+_PIXY_MODES = {"idle": 0x00, "tracking": 0x01, "privacy": 0x02}
+_PIXY_IFACE_CAMERA = 0x01
+
+
+def find_pixy_hidraw() -> str | None:
+    for node in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+        try:
+            with open(os.path.join(node, "device", "uevent"), "r", encoding="utf-8") as fh:
+                uevent = fh.read().upper()
+        except OSError:
+            continue
+        if any(pid in uevent for pid in _PIXY_HID_IDS):
+            return "/dev/" + os.path.basename(node)
+    return None
+
+
+def set_pixy_mode(mode: str, device: str | None = None) -> tuple[bool, str]:
+    value = _PIXY_MODES.get(str(mode).lower())
+    if value is None:
+        return False, "Unknown PIXY mode: %s" % mode
+    device = device or find_pixy_hidraw()
+    if not device:
+        return False, "EMEET PIXY not connected"
+    iface = _PIXY_IFACE_CAMERA
+    config = bytes([0x09, iface, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, value])
+    commit = bytes([0x09, iface, 0x01, iface])
+    try:
+        for i, report in enumerate((config, commit)):
+            if i:
+                time.sleep(0.2)
+            with open(device, "wb", buffering=0) as fh:
+                fh.write(report.ljust(32, b"\x00"))
+    except PermissionError:
+        return False, ("No permission to open %s; install the PIXY udev rule "
+                       "(see udev/99-emeet-pixy.rules)" % device)
+    except OSError as exc:
+        return False, "PIXY write failed on %s: %s" % (device, exc)
+    return True, "PIXY set to %s mode" % mode
+
+
+class PixyController:
+    """Keeps the EMEET PIXY in the configured mode (tracking by default).
+
+    The camera reverts to its own boot mode whenever it loses power, so the
+    mode is applied at startup and again every time the PIXY reappears.
+    """
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._device: str | None = None
+        self._applied_mode = ""
+        self._last_error = ""
+
+    def _mode(self) -> str:
+        cfg = (self.config.get("camera") or {}).get("local") or {}
+        return str(cfg.get("pixy_mode", "tracking")).lower()
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, name="pixy-mode", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def reapply(self) -> None:
+        self._applied_mode = ""
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            mode = self._mode()
+            device = find_pixy_hidraw()
+            if device != self._device:
+                self._device = device
+                self._applied_mode = ""
+            if device and mode in _PIXY_MODES and mode != self._applied_mode:
+                ok, msg = set_pixy_mode(mode, device)
+                if ok:
+                    self._applied_mode = mode
+                    self._last_error = ""
+                    LOG.info("%s (%s)", msg, device)
+                elif msg != self._last_error:
+                    self._last_error = msg
+                    LOG.warning(msg)
+            self._stop.wait(5.0)
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "connected": bool(self._device),
+            "hid_device": self._device,
+            "mode": self._applied_mode or None,
+            "wanted_mode": self._mode(),
+            "last_error": self._last_error,
+        }
+
 
 class LocalCamera:
     def __init__(self, config: dict[str, Any]) -> None:
@@ -22,12 +126,14 @@ class LocalCamera:
         self._last_error = ""
         self._last_capture = 0.0
         self._active_device = ""
+        self.pixy = PixyController(config)
 
     def _cfg(self) -> dict[str, Any]:
         return (self.config.get("camera") or {}).get("local") or {}
 
     def reconfigure(self) -> None:
         self._last_error = ""
+        self.pixy.reapply()
 
     def _name_for(self, device: str) -> str:
         name_file = "/sys/class/video4linux/%s/name" % os.path.basename(device)
@@ -65,6 +171,7 @@ class LocalCamera:
             "last_capture": self._last_capture,
             "last_error": self._last_error,
             "vision_on_voice": self._cfg().get("vision_on_voice", True),
+            "pixy": self.pixy.status(),
         }
 
     def _try_capture(self, device: str) -> bytes | None:

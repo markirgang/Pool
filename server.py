@@ -20,10 +20,13 @@ Features
 from __future__ import annotations
 
 import base64
+import hmac
+import http.cookies
 import http.server
 import json
 import logging
 import os
+import re
 import socket
 import socketserver
 import ssl
@@ -33,6 +36,7 @@ import time
 import urllib.parse
 from typing import Any
 
+import auth
 from alexa_skill import alexa_devices_preview, handle_request as handle_alexa
 from gemini_bridge import GeminiPoolBridge
 from intellicenter_bridge import IntelliCenterBridge
@@ -47,6 +51,13 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 LOCAL_CONFIG_FILE = os.path.join(BASE_DIR, "config.local.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 LOG_FILE = os.path.join(BASE_DIR, "server.log")
+
+# GET endpoints that show the camera or can act on equipment; all POSTs other
+# than login/logout (and /alexa, which has its own token) also need a login.
+LOGIN_GET_PATHS = frozenset({
+    "/api/camera/snapshot", "/api/camera/frame",
+    "/api/intellicenter/open", "/api/intellicenter/host", "/intellicenter/host",
+})
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,6 +91,14 @@ def save_config(config: dict[str, Any]) -> None:
     api_key = public.pop("gemini_api_key", None)
     if api_key:
         local["gemini_api_key"] = api_key
+    login = public.pop("auth", None)
+    if login:
+        local["auth"] = login
+    ic = public.get("intellicenter")
+    if isinstance(ic, dict) and ic.get("host"):
+        # Site-specific panel address stays out of the git-tracked config.json.
+        local.setdefault("intellicenter", {})["host"] = ic["host"]
+        ic["host"] = ""
     alexa = public.get("alexa")
     if isinstance(alexa, dict):
         token = alexa.pop("token", None)
@@ -92,7 +111,8 @@ def save_config(config: dict[str, Any]) -> None:
     os.replace(tmp, CONFIG_FILE)
     if local or os.path.exists(LOCAL_CONFIG_FILE):
         tmp = LOCAL_CONFIG_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with open(fd, "w", encoding="utf-8") as fh:
             json.dump(local, fh, indent=2)
             fh.write("\n")
         os.replace(tmp, LOCAL_CONFIG_FILE)
@@ -257,6 +277,7 @@ def _local_ip() -> str:
 def _public_config() -> dict[str, Any]:
     cfg = json.loads(json.dumps(CONFIG))
     cfg.pop("gemini_api_key", None)
+    cfg.pop("auth", None)
     alexa = cfg.get("alexa") or {}
     token = alexa.pop("token", None)
     alexa["token_set"] = bool(token)
@@ -327,10 +348,85 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         return urllib.parse.urlparse(self.path).path
 
     # ------------------------------------------------------------------
+    # Login
+    # ------------------------------------------------------------------
+    def client_ip(self) -> str:
+        peer = self.client_address[0]
+        # The Cloudflare tunnel connects from localhost; trust its header only then.
+        if peer in ("127.0.0.1", "::1"):
+            return self.headers.get("CF-Connecting-IP") or peer
+        return peer
+
+    def is_https(self) -> bool:
+        return (self.headers.get("X-Forwarded-Proto", "").lower() == "https"
+                or '"https"' in self.headers.get("CF-Visitor", ""))
+
+    def session_user(self) -> str | None:
+        cookies = http.cookies.SimpleCookie()
+        try:
+            cookies.load(self.headers.get("Cookie", ""))
+        except http.cookies.CookieError:
+            return None
+        morsel = cookies.get(auth.COOKIE_NAME)
+        return auth.session_user(CONFIG, morsel.value if morsel else None)
+
+    def require_login(self) -> bool:
+        if self.session_user():
+            return True
+        message = ("Log in to view the camera or change settings"
+                   if auth.is_configured(CONFIG)
+                   else "No login is set up yet; run .venv/bin/python auth.py on the Pi")
+        self.send_json({"error": message, "login_required": True}, status=401)
+        return False
+
+    def set_session_cookie(self, value: str, max_age: int) -> None:
+        cookie = "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%d" % (
+            auth.COOKIE_NAME, value, max_age)
+        if self.is_https():
+            cookie += "; Secure"
+        self.send_header("Set-Cookie", cookie)
+
+    def handle_login(self, data: dict[str, Any]) -> None:
+        client = self.client_ip()
+        if not auth.is_configured(CONFIG):
+            self.send_json({"error": "No login is set up yet; run .venv/bin/python auth.py on the Pi"},
+                           status=503)
+            return
+        if auth.locked_out(client):
+            self.send_json({"error": "Too many failed attempts; wait a minute and try again"},
+                           status=429)
+            return
+        if not auth.check_login(CONFIG, client, data.get("username", ""), data.get("password", "")):
+            LOG.warning("Failed login from %s", client)
+            self.send_json({"error": "Wrong username or password"}, status=401)
+            return
+        LOG.info("Login from %s", client)
+        body = json.dumps({"ok": True, "username": CONFIG["auth"]["username"]}).encode("utf-8")
+        self.send_response(200)
+        self.set_session_cookie(auth.make_session(CONFIG), auth.SESSION_SECONDS)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_logout(self) -> None:
+        body = b'{"ok": true}'
+        self.send_response(200)
+        self.set_session_cookie("", 0)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ------------------------------------------------------------------
     # GET
     # ------------------------------------------------------------------
     def do_HEAD(self):
         path = self.route_path()
+        if path in LOGIN_GET_PATHS and not self.session_user():
+            self.send_response(401)
+            self.end_headers()
+            return
         if path in ("/api/camera/snapshot", "/api/camera/frame"):
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
@@ -345,7 +441,13 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.route_path()
-        if path == "/api/state":
+        if path in LOGIN_GET_PATHS and not self.require_login():
+            return
+        if path == "/api/auth":
+            user = self.session_user()
+            self.send_json({"configured": auth.is_configured(CONFIG),
+                            "logged_in": bool(user), "username": user})
+        elif path == "/api/state":
             self.send_json(_state())
         elif path == "/api/status":
             self.send_json({
@@ -441,13 +543,22 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         path = self.route_path()
         data = self.read_json()
 
+        if path == "/api/login":
+            self.handle_login(data)
+            return
+        if path == "/api/logout":
+            self.handle_logout()
+            return
+
         if path == "/alexa":
+            # Alexa authenticates with its own bearer token; with no token set
+            # the endpoint stays closed rather than open to the internet.
             token = (CONFIG.get("alexa") or {}).get("token")
-            if token:
-                auth = self.headers.get("Authorization", "")
-                if auth not in ("Bearer " + token, token):
-                    self.send_json({"error": "unauthorized"}, status=401)
-                    return
+            header = self.headers.get("Authorization", "")
+            if not token or not hmac.compare_digest(
+                    header.removeprefix("Bearer ").encode("utf-8"), token.encode("utf-8")):
+                self.send_json({"error": "unauthorized"}, status=401)
+                return
             try:
                 self.send_json(handle_alexa(data, CONTROLLER))
             except Exception as exc:
@@ -461,6 +572,10 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                         "payload": {"type": "INTERNAL_ERROR", "message": str(exc)},
                     }
                 }, status=200)
+            return
+
+        # Everything else changes equipment or settings.
+        if not self.require_login():
             return
 
         if path == "/api/command":
@@ -679,6 +794,15 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         self.send_json(result)
 
 
+WAKE_WORDS = ("iggy", "iggie", "iggi", "iggey", "igy")
+
+
+def _has_wake_word(transcription: Any) -> bool:
+    """True when one of the first three words is a spelling of "Iggy"."""
+    words = re.findall(r"[a-z']+", str(transcription or "").lower())
+    return any(w.strip("'") in WAKE_WORDS for w in words[:3])
+
+
 def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
                  mime_type: str = "audio/webm", local: bool = False,
                  speak_local: bool = True,
@@ -699,6 +823,13 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
             api_key, prompt, state, assistant, image_bytes, image_mime, provider, model, ollama_url
         )
     text = str(result.get("text") or "").strip()
+    if local and not _has_wake_word(result.get("transcription")):
+        # The always-on mic hears everything; only act on speech addressed
+        # to Iggy so background talk can't switch equipment.
+        LOG.info("Local mic: ignored speech without wake word: %r",
+                 (result.get("transcription") or "")[:120])
+        return {"text": "", "ignored": True, "state": state,
+                "transcription": result.get("transcription") or ""}
     if text.upper().startswith("IGNORE"):
         result["text"] = ""
         result["ignored"] = True
@@ -766,6 +897,7 @@ def main() -> None:
         CONFIG, lambda: _gemini_key({}), _local_audio_request
     )
     LOCAL_CAMERA = LocalCamera(CONFIG)
+    LOCAL_CAMERA.pixy.start()
     LOCAL_AUDIO.start()
     BRIDGE.start()
     CONTROLLER.start()
@@ -786,6 +918,8 @@ def main() -> None:
     finally:
         CONTROLLER.stop()
         BRIDGE.stop()
+        if LOCAL_CAMERA:
+            LOCAL_CAMERA.pixy.stop()
         if LOCAL_AUDIO:
             LOCAL_AUDIO.stop()
         httpd.server_close()

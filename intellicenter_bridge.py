@@ -534,11 +534,15 @@ class IntelliCenterBridge:
 
     async def _run_handler(self) -> None:
         model = PoolModel()
+        # Re-read body temps and salt from the panel on a timer so the UI is
+        # never more than a minute stale; pyintellicenter allows 30-900 s.
+        telemetry_seconds = float(self.ic_config.get("telemetry_seconds", 30))
         controller = ICModelController(
             self._host,
             model,
             port=self._port,
             transport=self._transport,
+            telemetry_reconcile_interval=max(30.0, min(900.0, telemetry_seconds)),
         )
         handler = ICConnectionHandler(controller)
         self._controller = controller

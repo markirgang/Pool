@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lighthouse Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -38,6 +38,7 @@
         <span id="statusText">CONNECTING</span>
       </div>
       <div class="mode-pill" id="modePill">POOL MODE</div>
+      <button class="btn small" id="authBtn" type="button">Log in</button>
     </div>
   </header>
 
@@ -234,7 +235,10 @@
               <div class="live-pill"><span class="status-dot"></span> LIVE</div>
             </div>
             <div class="pool-video-stage">
-              <img id="poolLiveVideo" src="/api/camera/snapshot" alt="Live Pool Camera" class="pool-camera-feed">
+              <img id="poolLiveVideo" alt="Live Pool Camera" class="pool-camera-feed">
+              <div class="video-locked" id="poolVideoLocked">
+                <span>&#128274; Log in to view the camera</span>
+              </div>
               <div class="video-overlay-bar">
                 <span>2732 NE 23RD AVE &middot; POOL CAM</span>
                 <span id="camStatusText">LIVE</span>
@@ -2752,9 +2756,35 @@ sudo systemctl enable --now cloudflared</code></pre>
   </div>
 
   <div class="toast" id="toast"></div>
-  <script src="pool3d.js?v=7"></script>
+  <!-- Modal: Login -->
+  <div class="modal-backdrop" id="loginModal" style="display: none;">
+    <form class="modal-dialog login-dialog" id="loginForm" autocomplete="on">
+      <div class="modal-head">
+        <h3>Log in to control the pool</h3>
+        <button class="modal-close" id="closeLoginModal" type="button">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">You can watch the pool's status without logging in. Log in to see the camera and change equipment.</p>
+        <div class="form-grid login-grid">
+          <label>Username
+            <input type="text" id="loginUser" name="username" autocomplete="username" required>
+          </label>
+          <label>Password
+            <input type="password" id="loginPass" name="password" autocomplete="current-password" required>
+          </label>
+        </div>
+        <div class="login-error" id="loginError"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="cancelLogin" type="button">Cancel</button>
+        <button class="btn primary" id="submitLogin" type="submit">Log in</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="pool3d.js?v=8"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
   <script src="audio_output.js?v=2"></script>
     <script src="ai_model_selector.js?v=1"></script>
 </body>
