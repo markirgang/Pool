@@ -538,7 +538,7 @@ class LocalAudio:
         if profile.get("engine") == "edge":
             data = self._synthesize_edge(clean, profile["voice"])
             if data:
-                if len(self._cache) > 32:
+                if len(self._cache) > 160:
                     self._cache.pop(next(iter(self._cache)))
                 self._cache[key] = data
                 return data, "audio/mpeg"
@@ -557,7 +557,7 @@ class LocalAudio:
                 slow=bool(profile["slow"]),
             ).write_to_fp(audio)
             data = audio.getvalue()
-            if len(self._cache) > 32:
+            if len(self._cache) > 160:
                 self._cache.pop(next(iter(self._cache)))
             self._cache[key] = data
             return data, "audio/mpeg"

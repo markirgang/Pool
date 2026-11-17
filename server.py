@@ -39,6 +39,7 @@ from typing import Any
 import alexa_custom
 import auth
 import ic_wiring
+import voice_fast
 from alexa_skill import alexa_devices_preview, handle_request as handle_alexa
 from gemini_bridge import GeminiPoolBridge
 from intellicenter_bridge import IntelliCenterBridge
@@ -759,6 +760,7 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         save_config(CONFIG)
         if LOCAL_AUDIO:
             LOCAL_AUDIO.reconfigure()
+            _prewarm_voice_async()
         if LOCAL_CAMERA:
             LOCAL_CAMERA.reconfigure()
         if ic_changed:
@@ -824,10 +826,7 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 mime = "audio/wav"
             else:
                 audio = base64.b64decode(audio_b64) if audio_b64 else None
-            result = _gemini_call(
-                api_key, "", audio, mime, local=use_local_mic,
-                provider=provider, model=model, ollama_url=ollama_url,
-            )
+            result = _voice_request(api_key, audio, mime, local=use_local_mic, provider=provider)
         self.send_json(result)
 
 
@@ -852,6 +851,112 @@ def _has_wake_word(transcription: Any) -> bool:
     return any(w.strip("'").removesuffix("'s") in WAKE_WORDS for w in words)
 
 
+def _prewarm_voice_async() -> None:
+    """Pre-generate speech for the instant-command replies so they play at once."""
+    def run() -> None:
+        voice = (CONFIG.get("assistant") or {}).get("server_voice") or local_audio.DEFAULT_SERVER_VOICE
+        started = time.time()
+        for text in voice_fast.common_replies():
+            if LOCAL_AUDIO:
+                LOCAL_AUDIO.synthesize(text, voice)
+        LOG.info("Pre-generated %d instant replies in voice %s (%.0fs)",
+                 len(voice_fast.common_replies()), voice, time.time() - started)
+    threading.Thread(target=run, name="voice-prewarm", daemon=True).start()
+
+
+def _apply_voice_action(action: str | None, payload: dict[str, Any]) -> dict[str, Any]:
+    """Run an instant voice command; a few expand to several panel commands."""
+    if not action:
+        return {"ok": True}
+    if action == "set_all_jets":
+        results = [_apply_action("set_deck_jet", {"id": jet, "on": payload.get("on")})
+                   for jet in ("ne", "nw", "se", "sw")]
+    elif action == "set_all_firebaskets":
+        results = [_apply_action("set_firebasket", {"id": basket, "on": payload.get("on")})
+                   for basket in ("east", "west")]
+    else:
+        return _apply_action(action, payload)
+    failed = [r for r in results if not r.get("ok")]
+    return failed[0] if failed else results[-1]
+
+
+def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: bool,
+                   provider: str = "", speak_local: bool = True) -> dict[str, Any]:
+    """Fast voice path: quick transcription, wake word, instant commands, then AI."""
+    started = time.time()
+    assistant = CONFIG.get("assistant") or {}
+    if not audio:
+        return {"text": "I didn't hear anything.", "state": _state()}
+    try:
+        transcript = voice_fast.transcribe(
+            api_key, audio, mime_type,
+            model=assistant.get("stt_model") or voice_fast.DEFAULT_STT_MODEL, provider=provider)
+    except Exception as exc:
+        # Fall back to the original single multimodal call.
+        LOG.warning("Fast transcription failed (%s); using the full voice model", exc)
+        image = None
+        camera_cfg = (CONFIG.get("camera") or {}).get("local") or {}
+        if local and LOCAL_CAMERA and camera_cfg.get("vision_on_voice", True):
+            image = LOCAL_CAMERA.capture()
+        return _gemini_call(api_key, "", audio, mime_type, local=local, speak_local=speak_local,
+                            image_bytes=image, provider=provider)
+    heard = time.time()
+    if not transcript:
+        return {"text": "", "ignored": True, "state": _state(), "transcription": ""}
+    if local and not _has_wake_word(transcript):
+        LOG.info("Local mic: ignored speech without wake word: %r", transcript[:120])
+        return {"text": "", "ignored": True, "state": _state(), "transcription": transcript}
+
+    fast = voice_fast.match_command(transcript, _state())
+    if fast:
+        action, payload, reply = fast
+        applied = _apply_voice_action(action, payload)
+        text = reply if applied.get("ok") else "Sorry, that didn't work: %s" % applied.get("message")
+        result: dict[str, Any] = {"text": text, "transcription": transcript, "fast": True,
+                                  "applied": {"ok": applied.get("ok"), "message": applied.get("message")}}
+        _finish_reply(result, text, local, speak_local, assistant)
+        LOG.info("Voice (instant) %.1fs: %r -> %r", time.time() - started, transcript, text)
+        return result
+
+    image = None
+    camera_cfg = (CONFIG.get("camera") or {}).get("local") or {}
+    if local and LOCAL_CAMERA and camera_cfg.get("vision_on_voice", True) \
+            and voice_fast.wants_vision(transcript):
+        image = LOCAL_CAMERA.capture()
+    prompt = transcript + "\n\n(Spoken request: reply in one or two short sentences that sound natural read aloud.)"
+    result = _gemini_call(
+        api_key, prompt, local=local, speak_local=speak_local, image_bytes=image,
+        provider=provider, model=assistant.get("reply_model") or voice_fast.DEFAULT_REPLY_MODEL,
+        transcription=transcript)
+    LOG.info("Voice (AI) heard in %.1fs, answered in %.1fs: %r", heard - started,
+             time.time() - started, transcript)
+    return result
+
+
+def _finish_reply(result: dict[str, Any], text: str, local: bool, speak_local: bool,
+                  assistant: dict[str, Any]) -> None:
+    """Record the reply for the app and speak it on the selected speaker."""
+    result["state"] = _state()
+    result["at"] = time.time()
+    with LAST_AI_LOCK:
+        LAST_AI.clear()
+        LAST_AI.update({
+            "text": text,
+            "at": result["at"],
+            "source": "local-microphone" if local else "browser",
+            "transcription": result.get("transcription") or "",
+        })
+    if text and LOCAL_AUDIO:
+        voice = assistant.get("server_voice") or local_audio.DEFAULT_SERVER_VOICE
+        data, audio_mime = LOCAL_AUDIO.synthesize(text, voice)
+        if data:
+            result["audio_b64"] = base64.b64encode(data).decode("ascii")
+            result["audio_mime"] = audio_mime
+            # One speaker at a time: the Pi's or the browser's (Hardware tab).
+            if speak_local and LOCAL_AUDIO.pi_speaker_selected():
+                LOCAL_AUDIO.play(data, audio_mime, text)
+
+
 def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
                  mime_type: str = "audio/webm", local: bool = False,
                  speak_local: bool = True,
@@ -859,7 +964,8 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
                  image_mime: str = "image/jpeg",
                  provider: str = "google",
                  model: str = "",
-                 ollama_url: str = "") -> dict[str, Any]:
+                 ollama_url: str = "",
+                 transcription: str | None = None) -> dict[str, Any]:
     assistant = CONFIG.get("assistant") or {}
     state = _state()
     if audio is not None:
@@ -871,6 +977,8 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
         result = GEMINI.generate_chat_response(
             api_key, prompt, state, assistant, image_bytes, image_mime, provider, model, ollama_url
         )
+    if transcription is not None:
+        result["transcription"] = transcription
     text = str(result.get("text") or "").strip()
     if local and not _has_wake_word(result.get("transcription")):
         # The always-on mic hears everything; only act on speech addressed
@@ -891,25 +999,7 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
             "ok": applied.get("ok"),
             "message": applied.get("message"),
         }
-    result["state"] = _state()
-    result["at"] = time.time()
-    with LAST_AI_LOCK:
-        LAST_AI.clear()
-        LAST_AI.update({
-            "text": text,
-            "at": result["at"],
-            "source": "local-microphone" if local else "browser",
-            "transcription": result.get("transcription") or "",
-        })
-    if text and LOCAL_AUDIO:
-        voice = assistant.get("server_voice") or local_audio.DEFAULT_SERVER_VOICE
-        data, audio_mime = LOCAL_AUDIO.synthesize(text, voice)
-        if data:
-            result["audio_b64"] = base64.b64encode(data).decode("ascii")
-            result["audio_mime"] = audio_mime
-            # One speaker at a time: the Pi's or the browser's (Hardware tab).
-            if speak_local and LOCAL_AUDIO.pi_speaker_selected():
-                LOCAL_AUDIO.play(data, audio_mime, text)
+    _finish_reply(result, text, local, speak_local, assistant)
     return result
 
 
@@ -917,15 +1007,7 @@ def _local_audio_request(audio: bytes, mime_type: str) -> dict[str, Any] | None:
     api_key = _gemini_key({})
     if not api_key:
         return None
-    image = None
-    camera_cfg = (CONFIG.get("camera") or {}).get("local") or {}
-    if LOCAL_CAMERA and camera_cfg.get("vision_on_voice", True):
-        image = LOCAL_CAMERA.capture()
-    return _gemini_call(
-        api_key, "", audio, mime_type, local=True,
-        image_bytes=image, image_mime="image/jpeg",
-        provider=_ai_provider({}),
-    )
+    return _voice_request(api_key, audio, mime_type, local=True, provider=_ai_provider({}))
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -949,6 +1031,7 @@ def main() -> None:
     LOCAL_CAMERA = LocalCamera(CONFIG)
     LOCAL_CAMERA.pixy.start()
     LOCAL_AUDIO.start()
+    _prewarm_voice_async()
     BRIDGE.start()
     CONTROLLER.start()
     httpd = ThreadingHTTPServer((HOST, PORT), PoolHandler)

@@ -111,7 +111,9 @@
     "browser_voice": "",
     "server_voice": "gb-male",
     "rate": 1.02,
-    "pitch": 1.06
+    "pitch": 1.06,
+    "stt_model": "gemini-3.5-flash-lite",
+    "reply_model": "gemini-3.1-flash-lite"
   },
   "audio": {
     "local": {
