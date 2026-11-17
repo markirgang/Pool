@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 from pool_controller import LIGHT_EFFECTS
 
-MODEL = "gemini-3.8-flash"
+MODEL = "gemini-3.5-flash-lite"
 OPENCODE_MODELS = {
     "opencode-go": "gemini-4-argon",
     "opencode": "gemini-3.8-flash",
@@ -51,6 +51,7 @@ _TOOL_ACTIONS = {
 _EFFECTS = sorted(LIGHT_EFFECTS.keys())
 
 
+# Wake word / trigger name context: pool
 PERSONALITIES = {
     "classic": (
         "You are Iggy, a funny, friendly talking iguana who lives on the deck and "
@@ -82,6 +83,8 @@ PERSONALITIES = {
 }
 
 _BASE_FACTS = (
+    "Your project name is 'pool'. You respond whenever the user mentions your name ('pool') anywhere in the continuous sentence (e.g. 'Hey pool, ...' or 'Can you move for me pool?'). Keep responses concise, helpful, and under 25 words for fast speech output. "
+   
     "You control two bodies of water: the pool and the spa. The pool is the default "
     "mode. The main variable-speed pump circulates the pool/spa. A secondary "
     "variable-speed pump runs whenever any water feature is on. Water features are "
