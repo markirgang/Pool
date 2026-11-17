@@ -179,8 +179,11 @@ class CameraStream:
             return self._seq, self._frame
 
     def _run(self, device: str) -> None:
+        # 640x360 keeps the camera's 16:9 shape at ~39 KB/frame (1024x576 was
+        # ~86 KB), so live video stays smooth over the Cloudflare tunnel.
+        size = str(self.camera._cfg().get("stream_size") or "640x360")
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
-               "-f", "v4l2", "-input_format", "mjpeg", "-video_size", "1024x576",
+               "-f", "v4l2", "-input_format", "mjpeg", "-video_size", size,
                "-framerate", "30", "-i", device,
                "-c:v", "copy", "-bsf:v", "mjpeg2jpeg", "-f", "mjpeg", "pipe:1"]
         try:

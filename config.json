@@ -135,9 +135,11 @@
   "camera": {
     "local": {
       "device": "auto",
-      "width": 1280,
+      "width": 640,
       "vision_on_voice": true,
-      "pixy_mode": "tracking"
+      "pixy_mode": "tracking",
+      "stream_size": "640x360",
+      "stream_fps": 10
     },
     "browser": {
       "device": ""

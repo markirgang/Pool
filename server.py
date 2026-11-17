@@ -345,7 +345,7 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_camera_stream(self) -> None:
-        """Live MJPEG (multipart/x-mixed-replace) at up to ~12 fps per viewer."""
+        """Live MJPEG (multipart/x-mixed-replace), camera.local.stream_fps per viewer."""
         stream = LOCAL_CAMERA.stream if LOCAL_CAMERA else None
         if not stream or not stream.ensure():
             self.send_json({"error": "Camera unavailable"}, status=503)
@@ -357,6 +357,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
         seq, last_sent = -1, 0.0
+        camera_cfg = (CONFIG.get("camera") or {}).get("local") or {}
+        interval = 1.0 / max(1.0, min(30.0, float(camera_cfg.get("stream_fps", 10))))
         try:
             while True:
                 stream.ensure()
@@ -365,7 +367,7 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                     if not stream.running():
                         break
                     continue
-                wait = 0.08 - (time.time() - last_sent)
+                wait = interval - (time.time() - last_sent)
                 if wait > 0:
                     time.sleep(wait)
                     seq, frame = stream.wait_frame(seq - 1, timeout=0.5)
