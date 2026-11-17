@@ -2308,7 +2308,7 @@ select option { background: #09202c; color: var(--text); }
 }
 body.logged-out .video-locked { display: grid; }
 body.logged-out .pool-camera-feed { visibility: hidden; }
-body.logged-out .view :is(button, input, select, textarea, .switch, .mode-btn) {
+body.logged-out .view :is(button, input, select, textarea, .switch, .mode-btn):not(.view-safe) {
   pointer-events: none !important;
   opacity: 0.5;
 }
@@ -2447,3 +2447,28 @@ body.logged-out .view :is(button, input, select, textarea, .switch, .mode-btn) {
   .cockpit-viewport-center .viz-stats strong { font-size: 0.72rem; }
 }
 .mic-btn.disabled { opacity: 0.4; filter: grayscale(0.6); }
+
+/* IntelliCenter equipment & wiring report */
+.wiring-summary { color: var(--muted); font-size: 0.82rem; margin-bottom: 8px; }
+.wiring-body { overflow-x: auto; }
+.wiring-section h3 { margin: 18px 0 8px; font-size: 0.95rem; color: var(--cyan); }
+.wiring-count { color: var(--muted); font-weight: 600; font-size: 0.8rem; margin-left: 4px; }
+.wiring-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; min-width: 760px; }
+.wiring-table th, .wiring-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 7px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.wiring-table th {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(6, 23, 33, 0.6);
+}
+.wiring-table td:nth-child(3) { color: var(--cyan); font-weight: 600; }
+.wiring-id { color: var(--muted); font-family: ui-monospace, monospace; font-size: 0.7rem; }
+.wiring-notes { color: #cbd5e1; }
+.wiring-notes div + div { margin-top: 2px; }
+.wiring-table td:first-child { white-space: nowrap; }

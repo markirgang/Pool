@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lighthouse Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="stylesheet" href="style.css?v=18">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -734,6 +734,21 @@
               </ul>
             </div>
           </div>
+        </section>
+
+        <section class="card" id="icWiringCard">
+          <div class="card-head">
+            <div>
+              <h2>Equipment &amp; Wiring</h2>
+              <p class="muted">Every device on the panel &mdash; relays, lights, water features and firepits, valves, pumps, heater, sensors and modules &mdash; with the IntelliCenter output it is connected to.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn small ghost view-safe" id="icWiringRefresh" type="button">Refresh</button>
+              <a class="btn primary small view-safe" id="icWiringPrint" href="/intellicenter/wiring?print=1" target="_blank" rel="noopener">Print / Save as PDF</a>
+            </div>
+          </div>
+          <div class="wiring-summary" id="icWiringSummary"></div>
+          <div class="wiring-body" id="icWiringBody">Loading equipment&hellip;</div>
         </section>
 
         <!-- HARDWARE & SCHEDULE CONTROL CENTER WORKBENCH -->
@@ -2848,7 +2863,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=9"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
   <script src="audio_output.js?v=2"></script>
     <script src="ai_model_selector.js?v=1"></script>
 </body>

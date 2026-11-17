@@ -2497,6 +2497,23 @@
     }
   }
 
+  async function loadWiring() {
+    var body = $("icWiringBody");
+    if (!body) return;
+    try {
+      var data = await api("/api/intellicenter/wiring");
+      var r = data.report || {};
+      body.innerHTML = data.html || "No equipment reported.";
+      if ($("icWiringSummary")) {
+        $("icWiringSummary").textContent = (r.total || 0) + " devices on " + (r.panel || "IntelliCenter") +
+          (r.host ? " at " + r.host : "") + (r.connected ? "" : " \u00B7 panel offline, showing last known data") +
+          " \u00B7 updated " + (r.generated || "");
+      }
+    } catch (err) {
+      body.textContent = "Could not load the equipment list: " + err.message;
+    }
+  }
+
   function activateTab(name) {
     var wanted = name || "control";
     var found = null;
@@ -2511,6 +2528,7 @@
     if (!found) return;
     if (wanted === "intellicenter") {
       loadIntelliCenter();
+      loadWiring();
     } else if (wanted === "panel") {
       loadIntelliCenter3D();
       if (window.panel3d) {
@@ -3488,6 +3506,7 @@
     $("saveSettings").addEventListener("click", saveSettings);
     $("saveAlexa").addEventListener("click", saveAlexaSettings);
     $("saveAlexaSkillId").addEventListener("click", saveAlexaSkillId);
+    $("icWiringRefresh").addEventListener("click", loadWiring);
     $("lightsParty").addEventListener("click", function () {
       command("set_all_lights", { on: true, effect: "PARTY" });
     });

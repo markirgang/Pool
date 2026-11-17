@@ -38,6 +38,7 @@ from typing import Any
 
 import alexa_custom
 import auth
+import ic_wiring
 from alexa_skill import alexa_devices_preview, handle_request as handle_alexa
 from gemini_bridge import GeminiPoolBridge
 from intellicenter_bridge import IntelliCenterBridge
@@ -507,6 +508,17 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(result, status=200 if result.get("ok") else 404)
         elif path in ("/api/intellicenter/scan", "/api/scan"):
             self.send_json(CONTROLLER.scan_status())
+        elif path == "/api/intellicenter/wiring":
+            report = ic_wiring.build(BRIDGE.inventory(), BRIDGE.resolved(), BRIDGE.status())
+            self.send_json({"ok": True, "report": report, "html": ic_wiring.render_tables(report)})
+        elif path == "/intellicenter/wiring":
+            report = ic_wiring.build(BRIDGE.inventory(), BRIDGE.resolved(), BRIDGE.status())
+            body = ic_wiring.render_page(report, CONFIG.get("name") or "Lighthouse Pool").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif path == "/api/config":
             self.send_json(_public_config())
         elif path in ("/api/models", "/api/ai/models"):
