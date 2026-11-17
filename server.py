@@ -23,8 +23,10 @@ import base64
 import hmac
 import http.cookies
 import http.server
+import io
 import json
 import logging
+import re
 import os
 import re
 import socket
@@ -528,6 +530,35 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"inputs": local_audio.list_local_audio_inputs()})
         elif path in ("/api/audio/outputs", "/api/audio/sinks"):
             self.send_json({"outputs": local_audio.list_local_audio_outputs()})
+        elif path.startswith("/api/tts/speak"):
+            query_params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            text_to_speak = query_params.get("text", ["Hello!"])[0]
+            voice_id = query_params.get("voice", ["ai_female_us"])[0]
+            clean_text = re.sub(r'\*[^*]*\*', '', text_to_speak).strip() or "Hello!"
+            tld_map = {
+                "ai_female_us": ("en", "com"), "ai_male_us": ("en", "us"),
+                "ai_female_uk": ("en", "co.uk"), "ai_male_uk": ("en", "co.uk"),
+                "ai_female_au": ("en", "com.au"), "ai_male_au": ("en", "com.au"),
+                "ai_female_ca": ("en", "ca"), "ai_male_ca": ("en", "ca"),
+                "ai_female_in": ("en", "co.in"), "ai_male_in": ("en", "co.in"),
+                "ai_female_ie": ("en", "ie"), "ai_male_ie": ("en", "ie"),
+                "ai_female_za": ("en", "co.za"), "ai_male_za": ("en", "co.za"),
+                "ai_female_ng": ("en", "com.ng"), "ai_male_ng": ("en", "com.ng"),
+                "ai_female_nz": ("en", "co.nz"), "ai_male_nz": ("en", "co.nz"),
+            }
+            lang, tld = tld_map.get(voice_id, ("en", "com"))
+            try:
+                from gtts import gTTS
+                mp3_fp = io.BytesIO()
+                gTTS(text=clean_text, lang=lang, tld=tld).write_to_fp(mp3_fp)
+                audio_bytes = mp3_fp.getvalue()
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.send_header("Content-Length", str(len(audio_bytes)))
+                self.end_headers()
+                self.wfile.write(audio_bytes)
+            except Exception as e:
+                self.send_json({"error": str(e)}, status=500)
         elif path == "/api/audio/devices":
             self.send_json(LOCAL_AUDIO.devices() if LOCAL_AUDIO else {
                 "inputs": [], "outputs": [], "voices": [], "local": None,

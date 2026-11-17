@@ -669,6 +669,14 @@
   }
 
   function handleAiResult(result) {
+    var transcribed = (result && (result.transcription || result.text) || "").trim();
+    var hasTrigger = window.AudioHardware ? window.AudioHardware.containsTriggerName(transcribed) : true;
+    var projName = window.AudioHardware ? window.AudioHardware.getProjectName() : "pool";
+    if (!hasTrigger && transcribed.length > 0) {
+      console.log("[Pool Voice] Ignored input without trigger name:", transcribed);
+      if ($("voiceStatus")) $("voiceStatus").textContent = 'Heard: "' + transcribed + '" — waiting for "' + projName + '" anywhere in sentence.';
+      return;
+    }
     state = result.state || state;
     render();
     var transcript = result.transcription;
