@@ -75,26 +75,6 @@ _EDGE_COUNTRIES = [
 _OLD_ALIASES = {  # keys used before the full list, kept so saved settings still work
     "us2-male": "en-US-AndrewNeural", "us2-female": "en-US-AriaNeural",
     "gb2-male": "en-GB-ThomasNeural", "gb2-female": "en-GB-LibbyNeural",
-VOICE_PROFILES.update({
-    "ai_female_us": {"name": "Female (US Accent)", "lang": "en", "tld": "com", "slow": False},
-    "ai_male_us": {"name": "Male (US Accent)", "lang": "en", "tld": "us", "slow": False},
-    "ai_female_uk": {"name": "Female (British UK)", "lang": "en", "tld": "co.uk", "slow": False},
-    "ai_male_uk": {"name": "Male (British UK)", "lang": "en", "tld": "co.uk", "slow": False},
-    "ai_female_au": {"name": "Female (Australian)", "lang": "en", "tld": "com.au", "slow": False},
-    "ai_male_au": {"name": "Male (Australian)", "lang": "en", "tld": "com.au", "slow": False},
-    "ai_female_ca": {"name": "Female (Canadian)", "lang": "en", "tld": "ca", "slow": False},
-    "ai_male_ca": {"name": "Male (Canadian)", "lang": "en", "tld": "ca", "slow": False},
-    "ai_female_in": {"name": "Female (Indian)", "lang": "en", "tld": "co.in", "slow": False},
-    "ai_male_in": {"name": "Male (Indian)", "lang": "en", "tld": "co.in", "slow": False},
-    "ai_female_ie": {"name": "Female (Irish)", "lang": "en", "tld": "ie", "slow": False},
-    "ai_male_ie": {"name": "Male (Irish)", "lang": "en", "tld": "ie", "slow": False},
-    "ai_female_za": {"name": "Female (South African)", "lang": "en", "tld": "co.za", "slow": False},
-    "ai_male_za": {"name": "Male (South African)", "lang": "en", "tld": "co.za", "slow": False},
-    "ai_female_ng": {"name": "Female (Nigerian)", "lang": "en", "tld": "com.ng", "slow": False},
-    "ai_male_ng": {"name": "Male (Nigerian)", "lang": "en", "tld": "com.ng", "slow": False},
-    "ai_female_nz": {"name": "Female (New Zealand)", "lang": "en", "tld": "co.nz", "slow": False},
-    "ai_male_nz": {"name": "Male (New Zealand)", "lang": "en", "tld": "co.nz", "slow": False},
-})
 }
 
 DEFAULT_SERVER_VOICE = "gb-male"  # Ryan, British male
@@ -123,6 +103,24 @@ VOICE_PROFILES.update({
     "za": {"name": "Basic Google voice (South African)", "lang": "en", "tld": "co.za", "slow": False},
     "us-slow": {"name": "Basic Google voice (US, slow)", "lang": "en", "tld": "com", "slow": True},
     "uk-slow": {"name": "Basic Google voice (British, slow)", "lang": "en", "tld": "co.uk", "slow": True},
+    "ai_female_us": {"name": "Female (US Accent)", "lang": "en", "tld": "com", "slow": False},
+    "ai_male_us": {"name": "Male (US Accent)", "lang": "en", "tld": "us", "slow": False},
+    "ai_female_uk": {"name": "Female (British UK)", "lang": "en", "tld": "co.uk", "slow": False},
+    "ai_male_uk": {"name": "Male (British UK)", "lang": "en", "tld": "co.uk", "slow": False},
+    "ai_female_au": {"name": "Female (Australian)", "lang": "en", "tld": "com.au", "slow": False},
+    "ai_male_au": {"name": "Male (Australian)", "lang": "en", "tld": "com.au", "slow": False},
+    "ai_female_ca": {"name": "Female (Canadian)", "lang": "en", "tld": "ca", "slow": False},
+    "ai_male_ca": {"name": "Male (Canadian)", "lang": "en", "tld": "ca", "slow": False},
+    "ai_female_in": {"name": "Female (Indian)", "lang": "en", "tld": "co.in", "slow": False},
+    "ai_male_in": {"name": "Male (Indian)", "lang": "en", "tld": "co.in", "slow": False},
+    "ai_female_ie": {"name": "Female (Irish)", "lang": "en", "tld": "ie", "slow": False},
+    "ai_male_ie": {"name": "Male (Irish)", "lang": "en", "tld": "ie", "slow": False},
+    "ai_female_za": {"name": "Female (South African)", "lang": "en", "tld": "co.za", "slow": False},
+    "ai_male_za": {"name": "Male (South African)", "lang": "en", "tld": "co.za", "slow": False},
+    "ai_female_ng": {"name": "Female (Nigerian)", "lang": "en", "tld": "com.ng", "slow": False},
+    "ai_male_ng": {"name": "Male (Nigerian)", "lang": "en", "tld": "com.ng", "slow": False},
+    "ai_female_nz": {"name": "Female (New Zealand)", "lang": "en", "tld": "co.nz", "slow": False},
+    "ai_male_nz": {"name": "Male (New Zealand)", "lang": "en", "tld": "co.nz", "slow": False},
 })
 
 _CARD_RE = re.compile(
