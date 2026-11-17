@@ -62,8 +62,8 @@
       "spa": "Lights"
     },
     "heater": {
-      "body": "Pool",
-      "device": "Heat Pump"
+      "circuit": "Heater",
+      "body": "Pool"
     },
     "valves": {
       "drain": "Intake",
@@ -115,7 +115,7 @@
   },
   "audio": {
     "local": {
-      "input_device": "plughw:CARD=PIXY,DEV=0",
+      "input_device": "default",
       "output_device": "default",
       "speech_rms": 650,
       "silence_ms": 1000,
@@ -126,7 +126,8 @@
     "browser": {
       "mic_device": "",
       "speaker_device": "",
-      "voice_source": "local"
+      "voice_source": "local",
+      "speaker_dest": "local"
     }
   },
   "camera": {

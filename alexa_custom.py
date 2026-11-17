@@ -188,7 +188,7 @@ def _temps(state: dict[str, Any]) -> str:
 
 
 HELP = ("You can say: turn the pool blue, start party mode, turn all the lights back "
-        "to blue, switch to spa mode, or what's the water temperature.")
+        "to blue, switch to spa mode, turn on the heater, or what's the water temperature.")
 
 
 def handle(body: dict[str, Any], controller: Any,
@@ -244,6 +244,12 @@ def handle(body: dict[str, Any], controller: Any,
             done = "The %s light is %s." % (target.lower(), "on" if on else "off")
         return _speak(done if result.get("ok")
                       else "I couldn't change the lights: %s" % result.get("message"))
+
+    if name in ("HeaterOnIntent", "HeaterOffIntent"):
+        on = name == "HeaterOnIntent"
+        result = controller.command("set_heater", {"on": on})
+        return _speak("The heater is %s." % ("on" if on else "off") if result.get("ok")
+                      else "I couldn't change the heater: %s" % result.get("message"))
 
     if name == "SetModeIntent":
         mode = _slot(intent, "mode", MODES)
@@ -334,6 +340,16 @@ def interaction_model(invocation_name: str = "lighthouse pool") -> dict[str, Any
                                     "turn the %s light off" % light, "turn the %s lights off" % light,
                                     "switch off the %s lights" % light, "lights off",
                                     "turn off the lights"],
+                    },
+                    {
+                        "name": "HeaterOnIntent",
+                        "samples": ["turn on the heater", "turn the heater on", "heat the pool",
+                                    "start the heater", "heater on"],
+                    },
+                    {
+                        "name": "HeaterOffIntent",
+                        "samples": ["turn off the heater", "turn the heater off",
+                                    "stop the heater", "heater off"],
                     },
                     {
                         "name": "SetModeIntent",

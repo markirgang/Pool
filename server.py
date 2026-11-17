@@ -831,13 +831,13 @@ def _alexa_ask_iggy(query: str) -> str:
     return text
 
 
-WAKE_WORDS = ("iggy", "iggie", "iggi", "iggey", "igy")
+WAKE_WORDS = ("iggy", "iggie", "iggi", "iggey", "igy", "ziggy", "iggys")
 
 
 def _has_wake_word(transcription: Any) -> bool:
-    """True when one of the first three words is a spelling of "Iggy"."""
+    """True when "Iggy" (or a common mis-hearing) appears anywhere in it."""
     words = re.findall(r"[a-z']+", str(transcription or "").lower())
-    return any(w.strip("'") in WAKE_WORDS for w in words[:3])
+    return any(w.strip("'").removesuffix("'s") in WAKE_WORDS for w in words)
 
 
 def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
@@ -895,7 +895,8 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
         if data:
             result["audio_b64"] = base64.b64encode(data).decode("ascii")
             result["audio_mime"] = audio_mime
-            if speak_local:
+            # One speaker at a time: the Pi's or the browser's (Hardware tab).
+            if speak_local and LOCAL_AUDIO.pi_speaker_selected():
                 LOCAL_AUDIO.play(data, audio_mime, text)
     return result
 

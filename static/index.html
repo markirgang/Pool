@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lighthouse Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=16">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -211,7 +211,7 @@
               </div>
             </div>
             <div class="light-scenes">
-              <button class="btn small party-btn" id="lightsParty" type="button">&#127881; Party Mode</button>
+              <button class="btn small party-btn" id="lightsParty" type="button">Party Mode</button>
               <button class="btn small" id="lightsAllBlue" type="button">All Lights Blue</button>
             </div>
             <div class="heater-row">
@@ -476,61 +476,61 @@
           </div>
         </section>
 
+      </div>
+
+      <!-- SETUP -->
+      <div class="view" id="view-setup">
         <section class="card">
           <div class="card-head">
             <div>
               <h2>Microphones &amp; Speakers</h2>
-              <p class="muted">The local mic in the webcam is always listening and the local HDMI speaker is selected, with the ability to use the browsing computer&rsquo;s mic and speaker.</p>
+              <p class="muted">Choose one microphone and one speaker. Only the selected mic listens and only the selected speaker plays Iggy&rsquo;s replies.</p>
             </div>
             <button class="btn small ghost" id="refreshAudio">Refresh Devices</button>
           </div>
 
           <div class="audio-source-selectors">
             <div class="source-card">
-              <div class="source-title">Voice Input Source</div>
+              <div class="source-title">Microphone (pick one)</div>
               <div class="source-options">
                 <label class="radio-label">
                   <input type="radio" name="voiceSource" value="local" id="sourceLocalMic" checked>
-                  <span>Local Webcam Mic (Always listening on Pi)</span>
+                  <span>Pi webcam mic (hands-free, say &ldquo;Iggy&rdquo;)</span>
                 </label>
                 <label class="radio-label">
                   <input type="radio" name="voiceSource" value="browser" id="sourceBrowserMic">
-                  <span>Browsing Computer&rsquo;s Microphone</span>
+                  <span>This browser&rsquo;s microphone (hold the mic button)</span>
                 </label>
               </div>
             </div>
 
             <div class="source-card">
-              <div class="source-title">Voice Output Destination</div>
+              <div class="source-title">Speaker (pick one)</div>
               <div class="source-options">
                 <label class="radio-label">
-                  <input type="radio" name="speakerDest" value="local" id="destLocalSpeaker">
-                  <span>Local HDMI Speaker (Pi)</span>
+                  <input type="radio" name="speakerDest" value="local" id="destLocalSpeaker" checked>
+                  <span>Pi speaker</span>
                 </label>
                 <label class="radio-label">
                   <input type="radio" name="speakerDest" value="browser" id="destBrowserSpeaker">
-                  <span>Browsing Computer&rsquo;s Speaker</span>
-                </label>
-                <label class="radio-label">
-                  <input type="radio" name="speakerDest" value="both" id="destBothSpeaker" checked>
-                  <span>Both (Local HDMI + Browser)</span>
+                  <span>This browser&rsquo;s speaker</span>
                 </label>
               </div>
             </div>
           </div>
 
           <div class="form-grid audio-grid">
-            <label>Browsing computer mic
-              <select id="browserMic" class="select"></select>
-            </label>
-            <label>Browsing computer speaker
-              <select id="browserSpeaker" class="select"></select>
-            </label>
-            <label>Local webcam microphone (Pi)
+            <label>Raspberry Pi microphone
               <select id="localMic" class="select"></select>
             </label>
-            <label>Local HDMI speaker (Pi)
+            <label>Raspberry Pi speaker
               <select id="localSpeaker" class="select"></select>
+            </label>
+            <label>This browser&rsquo;s microphone
+              <select id="browserMic" class="select"></select>
+            </label>
+            <label>This browser&rsquo;s speaker
+              <select id="browserSpeaker" class="select"></select>
             </label>
           </div>
 
@@ -595,10 +595,6 @@
           </div>
           <div class="conn-detail" id="cameraStatus">Checking cameras...</div>
         </section>
-      </div>
-
-      <!-- SETUP -->
-      <div class="view" id="view-setup">
         <section class="card">
           <div class="card-head">
             <div>
@@ -1183,7 +1179,7 @@
                 </div>
                 <div class="logic-node" id="nodeActuatorHeater">
                   <div class="logic-node-title">Gas Pool Heater (H1001)</div>
-                  <div class="logic-node-val" id="valActuatorHeater">OFF (Setpoint: 84°F)</div>
+                  <div class="logic-node-val" id="valActuatorHeater">OFF</div>
                 </div>
                 <div class="logic-node" id="nodeActuatorChlor">
                   <div class="logic-node-title">IntelliChlor SCG (CH101)</div>
@@ -1455,7 +1451,7 @@
                 <ul>
                   <li><strong>Suction Actuator (Intake):</strong> Rotates to draw 80% water directly from the spa bottom drain, minimizing heat loss to the cold pool.</li>
                   <li><strong>Return Actuator (Discharge):</strong> Directs 80% heated water back to the spa hydrotherapy return manifold.</li>
-                  <li><strong>Thermostat Activation:</strong> Automatically engages the pool gas heater with a target setpoint of 102°F.</li>
+                  <li><strong>Heater:</strong> Turns the heater on (it is a simple on/off heater with no thermostat).</li>
                   <li><strong>Pump Dynamics:</strong> Main VSR pump ramps up to circulate the isolated spa volume through the heat exchanger.</li>
                 </ul>
               </div>
@@ -2852,7 +2848,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=9"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=15"></script>
   <script src="audio_output.js?v=2"></script>
     <script src="ai_model_selector.js?v=1"></script>
 </body>

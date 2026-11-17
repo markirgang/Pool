@@ -460,16 +460,19 @@ class GeminiPoolBridge:
         heater = state.get("heater", {})
         bodies = state.get("bodies", {})
         blower = state.get("blower", {})
+        thermostat = heater.get("thermostat", True)
+
+        def body_line(name):
+            body = bodies.get(name, {})
+            if thermostat:
+                return "%s temp: %s F, setpoint %s F" % (
+                    name.capitalize(), body.get("temp"), body.get("setpoint"))
+            return "%s temp: %s F" % (name.capitalize(), body.get("temp"))
+
         lines = [
             "Mode: %s" % state.get("mode"),
-            "Pool temp: %s F, setpoint %s F" % (
-                bodies.get("pool", {}).get("temp"),
-                bodies.get("pool", {}).get("setpoint"),
-            ),
-            "Spa temp: %s F, setpoint %s F" % (
-                bodies.get("spa", {}).get("temp"),
-                bodies.get("spa", {}).get("setpoint"),
-            ),
+            body_line("pool"),
+            body_line("spa"),
             "Salt level: %s ppm (%s)" % (
                 state.get("chemistry", {}).get("salt"),
                 state.get("chemistry", {}).get("source"),
@@ -494,9 +497,10 @@ class GeminiPoolBridge:
                 "on" if lights.get("pool", {}).get("on") else "off",
                 "on" if lights.get("spa", {}).get("on") else "off",
             ),
-            "Heater: %s at %s F" % (
-                "on" if heater.get("on") else "off", heater.get("setpoint")
-            ),
+            ("Heater: %s at %s F" % ("on" if heater.get("on") else "off", heater.get("setpoint"))
+             if thermostat else
+             "Heater: %s (simple on/off heater with no thermostat or setpoint)" % (
+                 "on" if heater.get("on") else "off")),
             "Spa blower: %s" % ("on" if blower.get("on") else "off"),
             "Panel: %s" % state.get("connection", {}).get("mode"),
         ]

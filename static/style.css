@@ -2373,3 +2373,77 @@ body.logged-out .view :is(button, input, select, textarea, .switch, .mode-btn) {
 .alexa-steps { margin: 0 0 14px 1.2em; padding: 0; line-height: 1.6; font-size: 0.9rem; }
 .alexa-steps li { margin-bottom: 8px; }
 .alexa-steps code { font-size: 0.85em; }
+.pool-camera-feed:not([src]), #localCameraPreview:not([src]) { visibility: hidden; }
+
+/* ===================================================================
+   PHONES: compact header, Water Body then the 3D view first, bigger
+   touch targets. Must stay last so it overrides the cockpit rules.
+   =================================================================== */
+@media (max-width: 720px) {
+  .app-header {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 8px 10px 6px !important;
+  }
+  .brand { flex: 1 1 auto; min-width: 0; gap: 8px; }
+  .brand > div:last-child { min-width: 0; }
+  .brand-mark { width: 34px; height: 34px; font-size: 1rem; flex: 0 0 auto; }
+  .brand h1 {
+    font-size: 1.05rem !important;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .brand .tagline, .public-link, .mode-pill { display: none !important; }
+  .header-right {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
+  }
+  .status-badge { padding: 4px 8px; font-size: 0.62rem; }
+  #authBtn { padding: 7px 10px; }
+  .app-header .tabs { order: 3; flex: 1 1 100%; width: 100%; }
+  .tab { padding: 9px 12px !important; font-size: 0.8rem !important; }
+
+  .layout { padding: 8px 8px 28px !important; }
+  #view-control.active { gap: 10px !important; }
+  /* Flatten the columns so the cards can be ordered for a phone. */
+  .cockpit-panel-left, .cockpit-panel-right { display: contents !important; }
+  #view-control.active > *,
+  .cockpit-panel-left > *,
+  .cockpit-panel-right > * { order: 3; min-width: 0; }
+  #view-control.active .cockpit-panel-left > .hero-card { order: 1; }
+  #view-control.active > .cockpit-viewport-center {
+    order: 2;
+    height: 58vh !important;
+    min-height: 320px !important;
+  }
+
+  .card { padding: 14px; border-radius: 14px; }
+  .card-head { gap: 10px; }
+  .form-grid, .audio-grid, .audio-source-selectors, .assistant-grid {
+    grid-template-columns: 1fr !important;
+  }
+  input[type="range"] { min-height: 28px; }
+  .switch { transform: scale(1.12); transform-origin: right center; }
+  .btn { min-height: 38px; }
+  .btn.small { min-height: 34px; }
+  .modal-dialog { width: calc(100vw - 20px) !important; max-height: 88vh; overflow-y: auto; }
+  .toast, #toast { left: 10px; right: 10px; }
+  .cockpit-viewport-center .viz-stats {
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    padding: 5px 6px !important;
+    gap: 4px;
+  }
+  .cockpit-viewport-center .viz-stats > div { flex: 1 1 0; min-width: 0; padding: 4px 5px; }
+  .cockpit-viewport-center .viz-stats > div:first-child { display: none; }
+  .cockpit-viewport-center .viz-stats strong { font-size: 0.72rem; }
+}
+.mic-btn.disabled { opacity: 0.4; filter: grayscale(0.6); }

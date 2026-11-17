@@ -9,6 +9,7 @@ they never replace the local hardware.
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import re
@@ -23,17 +24,45 @@ from typing import Any, Callable
 
 LOG = logging.getLogger("pool.audio")
 
-VOICE_PROFILES = {
-    "us": {"name": "Iggy (US)", "lang": "en", "tld": "com", "slow": False},
-    "uk": {"name": "Iggy (British)", "lang": "en", "tld": "co.uk", "slow": False},
-    "au": {"name": "Iggy (Aussie)", "lang": "en", "tld": "com.au", "slow": False},
-    "ca": {"name": "Iggy (Canadian)", "lang": "en", "tld": "ca", "slow": False},
-    "ie": {"name": "Iggy (Irish)", "lang": "en", "tld": "ie", "slow": False},
-    "in": {"name": "Iggy (Indian)", "lang": "en", "tld": "co.in", "slow": False},
-    "za": {"name": "Iggy (South African)", "lang": "en", "tld": "co.za", "slow": False},
-    "us-slow": {"name": "Iggy (US, slow)", "lang": "en", "tld": "com", "slow": True},
-    "uk-slow": {"name": "Iggy (British, slow)", "lang": "en", "tld": "co.uk", "slow": True},
-}
+# Microsoft Edge neural voices (free, no key; needs internet), one male and
+# one female per country. "tld" picks the matching Google voice as fallback.
+_EDGE_VOICES = [
+    ("us", "com", "United States", "Guy", "en-US-GuyNeural", "Jenny", "en-US-JennyNeural"),
+    ("us2", "com", "United States", "Andrew", "en-US-AndrewNeural", "Aria", "en-US-AriaNeural"),
+    ("gb", "co.uk", "British", "Ryan", "en-GB-RyanNeural", "Sonia", "en-GB-SoniaNeural"),
+    ("gb2", "co.uk", "British", "Thomas", "en-GB-ThomasNeural", "Libby", "en-GB-LibbyNeural"),
+    ("au", "com.au", "Australian", "William", "en-AU-WilliamMultilingualNeural", "Natasha", "en-AU-NatashaNeural"),
+    ("ca", "ca", "Canadian", "Liam", "en-CA-LiamNeural", "Clara", "en-CA-ClaraNeural"),
+    ("ie", "ie", "Irish", "Connor", "en-IE-ConnorNeural", "Emily", "en-IE-EmilyNeural"),
+    ("nz", "com.au", "New Zealand", "Mitchell", "en-NZ-MitchellNeural", "Molly", "en-NZ-MollyNeural"),
+    ("in", "co.in", "Indian", "Prabhat", "en-IN-PrabhatNeural", "Neerja", "en-IN-NeerjaNeural"),
+    ("za", "co.za", "South African", "Luke", "en-ZA-LukeNeural", "Leah", "en-ZA-LeahNeural"),
+    ("ng", "com", "Nigerian", "Abeo", "en-NG-AbeoNeural", "Ezinne", "en-NG-EzinneNeural"),
+    ("ke", "com", "Kenyan", "Chilemba", "en-KE-ChilembaNeural", "Asilia", "en-KE-AsiliaNeural"),
+    ("sg", "com", "Singaporean", "Wayne", "en-SG-WayneNeural", "Luna", "en-SG-LunaNeural"),
+    ("ph", "com", "Filipino", "James", "en-PH-JamesNeural", "Rosa", "en-PH-RosaNeural"),
+]
+
+VOICE_PROFILES = {}
+for _key, _tld, _country, _male, _male_id, _female, _female_id in _EDGE_VOICES:
+    VOICE_PROFILES["%s-male" % _key] = {
+        "name": "%s (%s, male)" % (_male, _country), "engine": "edge", "voice": _male_id,
+        "gender": "male", "lang": "en", "tld": _tld, "slow": False}
+    VOICE_PROFILES["%s-female" % _key] = {
+        "name": "%s (%s, female)" % (_female, _country), "engine": "edge", "voice": _female_id,
+        "gender": "female", "lang": "en", "tld": _tld, "slow": False}
+
+VOICE_PROFILES.update({
+    "us": {"name": "Basic Google voice (US)", "lang": "en", "tld": "com", "slow": False},
+    "uk": {"name": "Basic Google voice (British)", "lang": "en", "tld": "co.uk", "slow": False},
+    "au": {"name": "Basic Google voice (Australian)", "lang": "en", "tld": "com.au", "slow": False},
+    "ca": {"name": "Basic Google voice (Canadian)", "lang": "en", "tld": "ca", "slow": False},
+    "ie": {"name": "Basic Google voice (Irish)", "lang": "en", "tld": "ie", "slow": False},
+    "in": {"name": "Basic Google voice (Indian)", "lang": "en", "tld": "co.in", "slow": False},
+    "za": {"name": "Basic Google voice (South African)", "lang": "en", "tld": "co.za", "slow": False},
+    "us-slow": {"name": "Basic Google voice (US, slow)", "lang": "en", "tld": "com", "slow": True},
+    "uk-slow": {"name": "Basic Google voice (British, slow)", "lang": "en", "tld": "co.uk", "slow": True},
+})
 
 _CARD_RE = re.compile(
     r"card\s+(\d+):\s+([^\[]+)\[([^\]]+)\],\s+device\s+(\d+):\s+([^\[]+)\[([^\]]+)\]"
@@ -69,6 +98,36 @@ def _parse_devices(output: str, kind: str) -> list[dict[str, str]]:
     return devices
 
 
+def _pipewire_nodes(media_class: str) -> list[dict[str, str]]:
+    """PipeWire sources/sinks as {"id": "pw:<node.name>", "name": description}.
+
+    Going through PipeWire (rather than opening ALSA hardware directly) lets
+    the app share the webcam mic and HDMI speaker with a browser on the Pi.
+    """
+    if not shutil.which("pw-dump"):
+        return []
+    try:
+        dump = json.loads(subprocess.run(["pw-dump"], capture_output=True, text=True,
+                                         timeout=4.0).stdout or "[]")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    nodes = []
+    for obj in dump:
+        props = (obj.get("info") or {}).get("props") or {}
+        if props.get("media.class") != media_class or not props.get("node.name"):
+            continue
+        nodes.append({
+            "id": "pw:" + props["node.name"],
+            "name": props.get("node.description") or props.get("node.nick") or props["node.name"],
+        })
+    return nodes
+
+
+def _is_pixy(item: dict[str, str]) -> bool:
+    text = (item.get("id", "") + " " + item.get("name", "")).lower()
+    return "pixy" in text or "emeet" in text
+
+
 class LocalAudio:
     """Always-on local mic/speaker plus device and voice discovery."""
 
@@ -102,6 +161,17 @@ class LocalAudio:
     def _local_cfg(self) -> dict[str, Any]:
         return (self.config.get("audio") or {}).get("local") or {}
 
+    def _browser_cfg(self) -> dict[str, Any]:
+        return (self.config.get("audio") or {}).get("browser") or {}
+
+    def pi_mic_selected(self) -> bool:
+        """Only one mic is active: the Pi webcam mic or the browser's."""
+        return str(self._browser_cfg().get("voice_source") or "local") != "browser"
+
+    def pi_speaker_selected(self) -> bool:
+        """Only one speaker plays replies: the Pi's or the browser's."""
+        return str(self._browser_cfg().get("speaker_dest") or "local") != "browser"
+
     def _assistant_cfg(self) -> dict[str, Any]:
         return self.config.get("assistant") or {}
 
@@ -110,12 +180,16 @@ class LocalAudio:
         self._last_status = {}
 
     def status(self) -> dict[str, Any]:
-        mic_ok = bool(shutil.which("arecord"))
-        speaker_ok = bool(shutil.which("aplay") and shutil.which("ffmpeg"))
+        mic_ok = bool(shutil.which("pw-record") or shutil.which("arecord"))
+        speaker_ok = bool((shutil.which("pw-play") or shutil.which("aplay"))
+                          and shutil.which("ffmpeg"))
         return {
             "mic_available": mic_ok,
             "speaker_available": speaker_ok,
-            "mic_running": bool(self._mic_thread and self._mic_thread.is_alive()),
+            "mic_running": bool(self._mic_thread and self._mic_thread.is_alive()
+                                and self._mic_proc is not None),
+            "pi_mic_selected": self.pi_mic_selected(),
+            "pi_speaker_selected": self.pi_speaker_selected(),
             "speaking": self.is_speaking(),
             "input_device": self._active_input or self._local_cfg().get("input_device", "default"),
             "output_device": self._active_output or self._local_cfg().get("output_device", "default"),
@@ -133,9 +207,9 @@ class LocalAudio:
     # Lifecycle
     # ------------------------------------------------------------------
     def start(self) -> None:
-        if not shutil.which("arecord"):
-            self._last_error = "arecord is not installed"
-            LOG.warning("Local microphone disabled: arecord is not installed")
+        if not (shutil.which("pw-record") or shutil.which("arecord")):
+            self._last_error = "neither pw-record nor arecord is installed"
+            LOG.warning("Local microphone disabled: %s", self._last_error)
             return
         if self._mic_thread and self._mic_thread.is_alive():
             return
@@ -168,22 +242,38 @@ class LocalAudio:
             return ""
 
     def _resolve_input(self, device: str) -> str:
+        sources = _pipewire_nodes("Audio/Source")
         captures = _parse_devices(
             self._command_output(["arecord", "-l"]), "input"
         ) if shutil.which("arecord") else []
-        ids = {c["id"] for c in captures}
-        # An explicit device is used as long as it is present; a missing card
+        ids = {c["id"] for c in sources + captures}
+        # An explicit device is used as long as it is present; a missing one
         # (e.g. the webcam unplugged) falls back to auto-selection.
         if device and device != "default":
-            if device in ids or "CARD=" not in device:
+            if device in ids or not (device.startswith("pw:") or "CARD=" in device):
                 return device
-        # Prefer the EMEET PIXY webcam mic, then any other webcam/USB mic.
-        for keywords in (("pixy", "emeet"), ("webcam", "usb")):
-            for c in captures:
-                name_lower = c["name"].lower()
-                if any(k in name_lower for k in keywords):
-                    return c["id"]
+        # Auto: the EMEET PIXY webcam mic first, via PipeWire when it runs.
+        for pool in (sources, captures[1:]):
+            for item in pool:
+                if _is_pixy(item):
+                    return item["id"]
+        if sources:
+            return "pw:"  # PipeWire's default source
+        for c in captures[1:]:
+            if any(k in c["name"].lower() for k in ("webcam", "usb")):
+                return c["id"]
         return captures[1]["id"] if len(captures) > 1 else device or "default"
+
+    @staticmethod
+    def _capture_command(device: str, rate: int) -> list[str]:
+        if device.startswith("pw:"):
+            cmd = ["pw-record", "--rate", str(rate), "--channels", "1",
+                   "--format", "s16", "--raw"]
+            if device[3:]:
+                cmd += ["--target", device[3:]]
+            return cmd + ["-"]
+        return ["arecord", "-q", "-D", device, "-f", "S16_LE",
+                "-r", str(rate), "-c", "1", "-t", "raw"]
 
     def _resolve_output(self, device: str) -> str:
         if device and device != "default":
@@ -199,6 +289,12 @@ class LocalAudio:
 
     def _output_candidates(self) -> list[str]:
         configured = str(self._local_cfg().get("output_device") or "default")
+        sinks = [item["id"] for item in _pipewire_nodes("Audio/Sink")]
+        if sinks and shutil.which("pw-play"):
+            # The Pi speaker is always on: the chosen sink if it is present,
+            # otherwise PipeWire's default sink.
+            candidates = [configured] if configured in sinks else []
+            return candidates + ["pw:"]
         playbacks = [
             item["id"] for item in _parse_devices(
                 self._command_output(["aplay", "-l"]), "output"
@@ -215,12 +311,20 @@ class LocalAudio:
         return candidates
 
     def devices(self) -> dict[str, Any]:
-        captures = _parse_devices(
-            self._command_output(["arecord", "-l"]), "input"
-        ) if shutil.which("arecord") else []
-        playbacks = _parse_devices(
-            self._command_output(["aplay", "-l"]), "output"
-        ) if shutil.which("aplay") else []
+        sources = _pipewire_nodes("Audio/Source")
+        sinks = _pipewire_nodes("Audio/Sink")
+        if sources or sinks:
+            captures = [{"id": "default", "name": "Automatic (EMEET PIXY webcam mic)",
+                         "kind": "input"}] + [dict(s, kind="input") for s in sources]
+            playbacks = [{"id": "default", "name": "System default speaker",
+                          "kind": "output"}] + [dict(s, kind="output") for s in sinks]
+        else:
+            captures = _parse_devices(
+                self._command_output(["arecord", "-l"]), "input"
+            ) if shutil.which("arecord") else []
+            playbacks = _parse_devices(
+                self._command_output(["aplay", "-l"]), "output"
+            ) if shutil.which("aplay") else []
         return {
             "inputs": captures,
             "outputs": playbacks,
@@ -241,14 +345,17 @@ class LocalAudio:
         frame_seconds = 0.1
         frame_bytes = int(rate * 2 * frame_seconds)
         while not self._stop.is_set():
+            if not self.pi_mic_selected():
+                # Browser mic selected: keep the Pi mic fully closed.
+                self._current_rms = 0
+                self._in_speech = False
+                self._stop.wait(1.0)
+                continue
             cfg = self._local_cfg()
             wanted = self._resolve_input(str(cfg.get("input_device") or "default"))
             if wanted != device:
                 device = wanted
-            cmd = [
-                "arecord", "-q", "-D", device, "-f", "S16_LE",
-                "-r", str(rate), "-c", "1", "-t", "raw",
-            ]
+            cmd = self._capture_command(device, rate)
             try:
                 proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
@@ -271,7 +378,18 @@ class LocalAudio:
             speech_seconds = 0.0
             silence_seconds = 0.0
             in_speech = False
+            opened_for = str(cfg.get("input_device") or "default")
+            frame_count = 0
             while not self._stop.is_set():
+                frame_count += 1
+                # Reopen when the mic is changed in the Hardware tab.
+                if frame_count % 10 == 0 and not self.pi_mic_selected():
+                    LOG.info("Browser microphone selected; closing the Pi microphone")
+                    break
+                if frame_count % 20 == 0 and not in_speech and \
+                        str(self._local_cfg().get("input_device") or "default") != opened_for:
+                    LOG.info("Local microphone setting changed; reopening")
+                    break
                 data = proc.stdout.read(frame_bytes) if proc.stdout else b""
                 if not data:
                     self._last_error = "Microphone stream ended"
@@ -324,8 +442,12 @@ class LocalAudio:
                     silence_seconds = 0.0
             try:
                 proc.terminate()
+                proc.wait(timeout=2)  # reap it so no zombie process is left
             except Exception:
-                pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
             self._mic_proc = None
             if not self._stop.is_set():
                 self._stop.wait(1.5)
@@ -369,6 +491,14 @@ class LocalAudio:
         cached = self._cache.get(key)
         if cached:
             return cached, "audio/mpeg"
+        if profile.get("engine") == "edge":
+            data = self._synthesize_edge(clean, profile["voice"])
+            if data:
+                if len(self._cache) > 32:
+                    self._cache.pop(next(iter(self._cache)))
+                self._cache[key] = data
+                return data, "audio/mpeg"
+            # Fall back to the Google voice with the same accent.
         try:
             from gtts import gTTS
         except Exception:
@@ -392,8 +522,31 @@ class LocalAudio:
             LOG.warning(self._last_error)
             return None, ""
 
+    def _synthesize_edge(self, text: str, voice: str) -> bytes | None:
+        try:
+            import asyncio
+            import edge_tts
+        except Exception:
+            self._last_error = "edge-tts is not installed"
+            return None
+
+        async def run() -> bytes:
+            audio = bytearray()
+            async for chunk in edge_tts.Communicate(text, voice).stream():
+                if chunk.get("type") == "audio":
+                    audio.extend(chunk["data"])
+            return bytes(audio)
+
+        try:
+            data = asyncio.run(asyncio.wait_for(run(), timeout=20))
+            return data or None
+        except Exception as exc:
+            self._last_error = "Neural voice %s failed: %s" % (voice, exc)
+            LOG.warning(self._last_error)
+            return None
+
     def play(self, data: bytes, mime: str = "audio/mpeg", text: str = "") -> None:
-        if not data or not shutil.which("aplay"):
+        if not data or not (shutil.which("pw-play") or shutil.which("aplay")):
             return
         self._speaking_until = max(self._speaking_until, time.time() + 2.0)
         thread = threading.Thread(
@@ -431,9 +584,12 @@ class LocalAudio:
             failures = []
             played = False
             for device in self._output_candidates():
+                if device.startswith("pw:"):
+                    cmd = ["pw-play"] + (["--target", device[3:]] if device[3:] else []) + [wav_path]
+                else:
+                    cmd = ["aplay", "-q", "-D", device, wav_path]
                 result = subprocess.run(
-                    ["aplay", "-q", "-D", device, wav_path],
-                    capture_output=True, timeout=max(15.0, duration + 10.0),
+                    cmd, capture_output=True, timeout=max(15.0, duration + 10.0),
                 )
                 if result.returncode == 0:
                     self._active_output = device

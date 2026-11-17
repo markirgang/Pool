@@ -343,6 +343,8 @@ class PoolController:
             data["modes"] = {"pool": mode == "pool", "spa": mode == "spa"}
             data["valves"] = self._valves_for_mode(mode)
             data["heater"]["active"] = data["heater"]["on"]
+            # A relay-switched heater is plain on/off with no thermostat.
+            data["heater"]["thermostat"] = not (resolved.get("heater") or {}).get("circuit")
             data["heater"]["heating"] = bool(
                 data["bodies"].get(active_body, {}).get("heating")
             )
@@ -616,6 +618,7 @@ class PoolController:
 
             # 6. Heater
             if objnam in (
+                (resolved.get("heater") or {}).get("circuit"),
                 (resolved.get("heater") or {}).get("device"),
                 (resolved.get("heater") or {}).get("body"),
             ):
@@ -1019,7 +1022,8 @@ class PoolController:
             heater = self.state_data["heater"]
             if on is not None:
                 heater["on"] = bool(on)
-            if setpoint is not None:
+            relay = (self.bridge.resolved().get("heater") or {}).get("circuit")
+            if setpoint is not None and not relay:
                 value = max(40, min(104, int(setpoint)))
                 heater["setpoint"] = value
                 self.state_data["bodies"]["pool"]["setpoint"] = value
@@ -1032,6 +1036,11 @@ class PoolController:
     def _heater_changes(self, changes: dict[str, dict[str, Any]],
                         resolved: dict[str, Any]) -> None:
         heater = self.state_data["heater"]
+        relay = (resolved.get("heater") or {}).get("circuit")
+        if relay:
+            # On/off heater on a relay: just switch it; there is no thermostat.
+            self._power(changes, relay, heater["on"])
+            return
         mode = self.state_data["mode"]
         active = "spa" if mode == "spa" else "pool"
         active_body = resolved.get("bodies", {}).get(active)
@@ -1322,7 +1331,10 @@ class PoolController:
             active_body = "spa" if self.state_data["mode"] == "spa" else "pool"
             body_objnam = resolved.get("bodies", {}).get(active_body)
             body_obj = bodies.get(body_objnam)
-            if body_obj:
+            heater_relay = (resolved.get("heater") or {}).get("circuit")
+            if heater_relay:
+                self.state_data["heater"]["on"] = bool(on(heater_relay))
+            elif body_obj:
                 mode = body_obj["attrs"].get("MODE")
                 self.state_data["heater"]["on"] = mode not in (None, "0", "1", "")
                 try:

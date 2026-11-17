@@ -812,6 +812,8 @@ class IntelliCenterBridge:
         blower_name = blower.get("circuit") if isinstance(blower, dict) else blower
         resolved["blower"]["circuit"] = find(blower_name, CIRCUIT_TYPE, circuits)
         heater = devices.get("heater") or {}
+        # An on/off heater wired to a relay circuit (no thermostat).
+        resolved["heater"]["circuit"] = find(heater.get("circuit"), CIRCUIT_TYPE, circuits)
         resolved["heater"]["body"] = find(
             heater.get("body"), BODY_TYPE, bodies
         )

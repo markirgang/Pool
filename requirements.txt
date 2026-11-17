@@ -2,3 +2,4 @@ pyintellicenter>=0.3.2
 zeroconf>=0.132
 google-genai>=1.0.0
 gTTS>=2.5
+edge-tts>=7.0

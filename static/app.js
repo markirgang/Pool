@@ -96,6 +96,7 @@
       });
       if ($("camStatusText")) $("camStatusText").textContent = "LOCKED";
     } else if (!was) {
+      if ($("camStatusText")) $("camStatusText").textContent = "CONNECTING";
       refreshLocalSnapshot();
     }
   }
@@ -605,9 +606,17 @@
     iguanaSay(text, Math.max(2800, text.length * 70));
   }
 
+  // One speaker plays replies: the Pi's or this browser's (Hardware tab).
+  function browserSpeakerEnabled() {
+    var radio = $("destBrowserSpeaker");
+    if (radio) return radio.checked;
+    var cfg = (config && config.audio && config.audio.browser) || {};
+    return (cfg.speaker_dest || "local") === "browser";
+  }
+
   function speak(text, audioB64, audioMime) {
     var tts = $("ttsToggle");
-    if (!tts || !tts.checked) {
+    if (!tts || !tts.checked || !browserSpeakerEnabled()) {
       iguanaSay(text, Math.max(2800, text.length * 55));
       return;
     }
@@ -686,6 +695,47 @@
 
   function micSource() {
     return ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
+  }
+
+  function releaseBrowserMic() {
+    stopBrowserVu();
+    if (browserMicStream) {
+      browserMicStream.getTracks().forEach(function (t) { t.stop(); });
+      browserMicStream = null;
+    }
+  }
+
+  // Only one mic is live: release the browser mic when the Pi mic is chosen.
+  function applyMicSource() {
+    var browser = micSource() === "browser";
+    if (!browser) releaseBrowserMic();
+    var btn = $("micBtn");
+    if (btn) {
+      btn.classList.toggle("disabled", !browser);
+      btn.title = browser ? "Hold to talk" : "The Pi webcam mic is selected (Hardware tab)";
+    }
+    if ($("voiceStatus") && !(recorder && recorder.state === "recording")) {
+      $("voiceStatus").textContent = browser ? "Press and hold, then speak"
+        : "Listening on the Pi webcam mic. Say \u201cIggy\u201d. (Switch to this browser\u2019s mic in the Hardware tab.)";
+    }
+    if (browser) {
+      var chip = $("micStateChip");
+      if (chip) { chip.textContent = "BROWSER MIC"; chip.className = "mic-state-chip listening"; }
+    }
+  }
+
+  async function saveAudioChoice(browserFields, message) {
+    try {
+      var result = await api("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio: { browser: browserFields } })
+      });
+      if (result && result.config) config = result.config;
+      toast(message, "good");
+    } catch (err) {
+      toast("Could not save: " + err.message, "error");
+    }
   }
 
   // Meter and threshold share one scale: 16-bit RMS in dBFS, -60 dB = 0%.
@@ -853,6 +903,10 @@
   async function startRecording(event) {
     if (event) event.preventDefault();
     if (recorder) return;
+    if (micSource() !== "browser") {
+      $("voiceStatus").textContent = "The Pi webcam mic is selected. Say \u201cIggy\u201d near the Pi, or switch to this browser\u2019s mic in the Hardware tab.";
+      return;
+    }
     if (!navigator.mediaDevices || !window.MediaRecorder) {
       $("voiceStatus").textContent = "Microphone recording is not available in this browser. Type instead.";
       return;
@@ -1017,6 +1071,13 @@
     }
   }
 
+  // Friendly name for a Pi audio device id ("pw:<node>" or ALSA).
+  function deviceLabel(list, id) {
+    if (!id || id === "pw:" || id === "default") return "the system default";
+    var hit = (list || []).filter(function (d) { return d.id === id; })[0];
+    return hit ? hit.name : String(id).replace(/^pw:/, "");
+  }
+
   async function refreshAudioDevices(askPermission) {
     if (askPermission && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
@@ -1055,13 +1116,15 @@
       fillSelect($("localMic"), localAudio.inputs, "System default microphone", localMic);
       fillSelect($("localSpeaker"), localAudio.outputs, "System default speaker", localSpk);
 
-      var savedVoiceSource = localStorage.getItem("pool.micSource") || browserCfg.voice_source || "local";
-      var savedSpeakerDest = localStorage.getItem("pool.speakerDest") || browserCfg.speaker_dest || "both";
+      // The mic and speaker choices are stored on the Pi: there is one Pi mic,
+      // so every browser must agree which mic and speaker are in use.
+      var savedVoiceSource = browserCfg.voice_source === "browser" ? "browser" : "local";
+      var savedSpeakerDest = browserCfg.speaker_dest === "browser" ? "browser" : "local";
       if ($("sourceLocalMic")) $("sourceLocalMic").checked = (savedVoiceSource === "local");
       if ($("sourceBrowserMic")) $("sourceBrowserMic").checked = (savedVoiceSource === "browser");
       if ($("destLocalSpeaker")) $("destLocalSpeaker").checked = (savedSpeakerDest === "local");
       if ($("destBrowserSpeaker")) $("destBrowserSpeaker").checked = (savedSpeakerDest === "browser");
-      if ($("destBothSpeaker")) $("destBothSpeaker").checked = (savedSpeakerDest === "both");
+      applyMicSource();
 
       setSilenceDelay((localCfg.silence_ms || 1000) / 1000, false);
       if (localCfg.speech_rms) {
@@ -1078,8 +1141,8 @@
       var speakerRoute = ("setSinkId" in HTMLMediaElement.prototype)
         ? "Browser speaker routing supported" : "Browser speaker routing not supported by this browser";
       $("localAudioStatus").textContent =
-        "Pi webcam microphone: " + (status.mic_running ? "ALWAYS LISTENING on " + (status.input_device || "default") : "not running") +
-        "\nPi HDMI speaker: " + (status.speaker_available ? "ACTIVE on " + (status.output_device || "default") : "not available") +
+        "Pi microphone: " + (status.mic_running ? "always listening on " + deviceLabel(localAudio.inputs, status.input_device) : "not running") +
+        "\nPi speaker: " + (status.speaker_available ? "always on, playing to " + deviceLabel(localAudio.outputs, status.output_device) : "not available") +
         "\n" + speakerRoute + ". Local mic and speaker stay active even when browser devices are selected." +
         (status.last_error ? "\nLast audio error: " + status.last_error : "");
     } catch (err) {
@@ -1118,8 +1181,7 @@
 
   async function saveAudioSettings() {
     var voiceSource = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
-    var speakerDest = ($("destLocalSpeaker") && $("destLocalSpeaker").checked) ? "local"
-      : (($("destBrowserSpeaker") && $("destBrowserSpeaker").checked) ? "browser" : "both");
+    var speakerDest = browserSpeakerEnabled() ? "browser" : "local";
     var rms = sensitivityToRms(micSensitivityPercent);
 
     var payload = {
@@ -2590,7 +2652,7 @@
     if ($("valActuatorReturn")) $("valActuatorReturn").textContent = isSpa ? "100% Spa Return Jets" : "80% Spa (Spillway) / 20% Pool";
     if ($("valActuatorMainPump")) $("valActuatorMainPump").textContent = mainOn ? (mainRpm + " RPM • " + Math.round(mainRpm * 0.02) + " GPM • " + Math.round(mainRpm * 0.22) + "W") : "STOPPED (0 RPM)";
     if ($("valActuatorFeatPump")) $("valActuatorFeatPump").textContent = featOn ? (featRpm + " RPM • ACTIVE") : "OFF (0 RPM)";
-    if ($("valActuatorHeater")) $("valActuatorHeater").textContent = heaterOn ? "HEATING ACTIVE (Setpoint: 102°F)" : "OFF (Standby)";
+    if ($("valActuatorHeater")) $("valActuatorHeater").textContent = heaterOn ? "ON" : "OFF";
     if ($("valActuatorChlor")) $("valActuatorChlor").textContent = mainOn ? "Generating Sanitizer @ 60%" : "Standby (Awaiting Pump Flow)";
   }
 
@@ -3478,20 +3540,22 @@
       var r = $(id);
       if (r) {
         r.addEventListener("change", function () {
-          var val = ($("sourceBrowserMic") && $("sourceBrowserMic").checked) ? "browser" : "local";
-          localStorage.setItem("pool.micSource", val);
-          if (val === "browser") ensureBrowserMicMonitor(); else stopBrowserVu();
+          var val = micSource();
+          applyMicSource();
+          saveAudioChoice({ voice_source: val },
+            val === "browser" ? "Browser microphone selected; the Pi mic is off"
+                              : "Pi microphone selected; the browser mic is off");
         });
       }
     });
 
-    ["destLocalSpeaker", "destBrowserSpeaker", "destBothSpeaker"].forEach(function (id) {
+    ["destLocalSpeaker", "destBrowserSpeaker"].forEach(function (id) {
       var r = $(id);
       if (r) {
         r.addEventListener("change", function () {
-          var val = ($("destLocalSpeaker") && $("destLocalSpeaker").checked) ? "local"
-            : (($("destBrowserSpeaker") && $("destBrowserSpeaker").checked) ? "browser" : "both");
-          localStorage.setItem("pool.speakerDest", val);
+          var browser = browserSpeakerEnabled();
+          saveAudioChoice({ speaker_dest: browser ? "browser" : "local" },
+            browser ? "Replies will play on this browser" : "Replies will play on the Pi speaker");
         });
       }
     });

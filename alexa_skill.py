@@ -177,7 +177,7 @@ def _power_state(endpoint_id: str, state: dict[str, Any]) -> str:
 def _properties(endpoint_id: str, state: dict[str, Any]) -> list[dict]:
     props = [_property("Alexa.PowerController", "powerState",
                        _power_state(endpoint_id, state))]
-    if endpoint_id == "pool_heater":
+    if endpoint_id == "pool_heater" and (state.get("heater") or {}).get("thermostat", True):
         temperature = state["bodies"].get("pool", {}).get("temp")
         props = [
             _property("Alexa.ThermostatController", "targetSetpoint",
