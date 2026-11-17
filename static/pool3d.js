@@ -1225,6 +1225,8 @@
 
   function animate() {
     requestAnimationFrame(animate);
+    // Skip rendering while the canvas is hidden (e.g. on the Live tab).
+    if (!renderer.domElement.offsetParent) return;
     var t = clock.getElapsedTime();
     var dt = lastT ? Math.min(t - lastT, 0.1) : 0.016;
     lastT = t;

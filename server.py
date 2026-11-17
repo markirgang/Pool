@@ -55,12 +55,16 @@ LOCAL_CONFIG_FILE = os.path.join(BASE_DIR, "config.local.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 LOG_FILE = os.path.join(BASE_DIR, "server.log")
 
-# GET endpoints that show the camera or can act on equipment; all POSTs other
-# than login/logout (and /alexa, which has its own token) also need a login.
+# GET endpoints that can act on equipment; all POSTs other than login/logout
+# (and /alexa, which has its own token) also need a login.
 LOGIN_GET_PATHS = frozenset({
-    "/api/camera/snapshot", "/api/camera/frame",
     "/api/intellicenter/open", "/api/intellicenter/host", "/intellicenter/host",
 })
+# The camera is admin-only: guests can control the pool but not see video.
+ADMIN_GET_PATHS = frozenset({
+    "/api/camera/snapshot", "/api/camera/frame", "/api/camera/stream",
+})
+ADMIN_POST_PATHS = frozenset({"/api/camera/look"})
 
 logging.basicConfig(
     level=logging.INFO,
@@ -338,6 +342,40 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_camera_stream(self) -> None:
+        """Live MJPEG (multipart/x-mixed-replace) at up to ~12 fps per viewer."""
+        stream = LOCAL_CAMERA.stream if LOCAL_CAMERA else None
+        if not stream or not stream.ensure():
+            self.send_json({"error": "Camera unavailable"}, status=503)
+            return
+        boundary = "poolframe"
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=" + boundary)
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        seq, last_sent = -1, 0.0
+        try:
+            while True:
+                stream.ensure()
+                seq, frame = stream.wait_frame(seq, timeout=5.0)
+                if not frame:
+                    if not stream.running():
+                        break
+                    continue
+                wait = 0.08 - (time.time() - last_sent)
+                if wait > 0:
+                    time.sleep(wait)
+                    seq, frame = stream.wait_frame(seq - 1, timeout=0.5)
+                self.wfile.write(("--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n"
+                                  % (boundary, len(frame))).encode("ascii"))
+                self.wfile.write(frame)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+                last_sent = time.time()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+
     def read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", 0) or 0)
         raw = self.rfile.read(length) if length > 0 else b"{}"
@@ -383,6 +421,15 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         self.send_json({"error": message, "login_required": True}, status=401)
         return False
 
+    def require_admin(self) -> bool:
+        if not self.require_login():
+            return False
+        if auth.role_of(CONFIG, self.session_user()) == "admin":
+            return True
+        self.send_json({"error": "Only the admin account can view the camera",
+                        "admin_required": True}, status=403)
+        return False
+
     def set_session_cookie(self, value: str, max_age: int) -> None:
         cookie = "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%d" % (
             auth.COOKIE_NAME, value, max_age)
@@ -400,14 +447,16 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "Too many failed attempts; wait a minute and try again"},
                            status=429)
             return
-        if not auth.check_login(CONFIG, client, data.get("username", ""), data.get("password", "")):
+        user = auth.check_login(CONFIG, client, data.get("username", ""), data.get("password", ""))
+        if not user:
             LOG.warning("Failed login from %s", client)
             self.send_json({"error": "Wrong username or password"}, status=401)
             return
-        LOG.info("Login from %s", client)
-        body = json.dumps({"ok": True, "username": CONFIG["auth"]["username"]}).encode("utf-8")
+        role = auth.role_of(CONFIG, user)
+        LOG.info("Login by %s (%s) from %s", user, role, client)
+        body = json.dumps({"ok": True, "username": user, "role": role}).encode("utf-8")
         self.send_response(200)
-        self.set_session_cookie(auth.make_session(CONFIG), auth.SESSION_SECONDS)
+        self.set_session_cookie(auth.make_session(CONFIG, user), auth.SESSION_SECONDS)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -427,7 +476,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
     # ------------------------------------------------------------------
     def do_HEAD(self):
         path = self.route_path()
-        if path in LOGIN_GET_PATHS and not self.session_user():
+        if (path in LOGIN_GET_PATHS and not self.session_user()) or (
+                path in ADMIN_GET_PATHS and auth.role_of(CONFIG, self.session_user()) != "admin"):
             self.send_response(401)
             self.end_headers()
             return
@@ -447,10 +497,15 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         path = self.route_path()
         if path in LOGIN_GET_PATHS and not self.require_login():
             return
+        if path in ADMIN_GET_PATHS and not self.require_admin():
+            return
         if path == "/api/auth":
             user = self.session_user()
             self.send_json({"configured": auth.is_configured(CONFIG),
-                            "logged_in": bool(user), "username": user})
+                            "logged_in": bool(user), "username": user,
+                            "role": auth.role_of(CONFIG, user)})
+        elif path == "/api/camera/stream":
+            self.send_camera_stream()
         elif path == "/api/state":
             self.send_json(_state())
         elif path == "/api/status":
@@ -612,6 +667,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
 
         # Everything else changes equipment or settings.
         if not self.require_login():
+            return
+        if path in ADMIN_POST_PATHS and not self.require_admin():
             return
 
         if path == "/api/command":

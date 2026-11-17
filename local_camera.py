@@ -120,6 +120,112 @@ class PixyController:
         }
 
 
+class CameraStream:
+    """One shared live MJPEG stream from the webcam for all viewers.
+
+    The PIXY outputs MJPEG itself, so ffmpeg copies its frames without
+    re-encoding (mjpeg2jpeg adds the Huffman tables browsers need). The
+    stream starts with the first viewer and stops when nobody has asked for
+    a frame for IDLE_SECONDS. While it runs, snapshots reuse its latest
+    frame, since only one process can open the camera at a time.
+    """
+
+    IDLE_SECONDS = 15.0
+
+    def __init__(self, camera: "LocalCamera") -> None:
+        self.camera = camera
+        self._lock = threading.Condition()
+        self._frame: bytes | None = None
+        self._frame_at = 0.0
+        self._seq = 0
+        self._wanted_at = 0.0
+        self._proc: subprocess.Popen | None = None
+        self._thread: threading.Thread | None = None
+
+    def _device(self) -> str | None:
+        configured = str(self.camera._cfg().get("device") or "auto")
+        if configured != "auto":
+            return configured
+        found = self.camera.devices()
+        return found[0]["id"] if found else None
+
+    def running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def ensure(self) -> bool:
+        with self._lock:
+            self._wanted_at = time.time()
+            if self.running():
+                return True
+            device = self._device()
+            if not device:
+                return False
+            self._thread = threading.Thread(target=self._run, args=(device,),
+                                            name="camera-stream", daemon=True)
+            self._thread.start()
+            return True
+
+    def latest(self, max_age: float = 2.0) -> bytes | None:
+        with self._lock:
+            if self._frame and time.time() - self._frame_at <= max_age:
+                return self._frame
+        return None
+
+    def wait_frame(self, after_seq: int, timeout: float = 5.0) -> tuple[int, bytes | None]:
+        with self._lock:
+            self._wanted_at = time.time()
+            if self._seq <= after_seq:
+                self._lock.wait(timeout)
+            return self._seq, self._frame
+
+    def _run(self, device: str) -> None:
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
+               "-f", "v4l2", "-input_format", "mjpeg", "-video_size", "1024x576",
+               "-framerate", "30", "-i", device,
+               "-c:v", "copy", "-bsf:v", "mjpeg2jpeg", "-f", "mjpeg", "pipe:1"]
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except OSError as exc:
+            LOG.warning("Live camera stream failed to start: %s", exc)
+            return
+        self._proc = proc
+        LOG.info("Live camera stream started on %s", device)
+        buf = b""
+        try:
+            while proc.stdout:
+                chunk = proc.stdout.read1(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while True:
+                    start = buf.find(b"\xff\xd8")
+                    end = buf.find(b"\xff\xd9", start + 2) if start >= 0 else -1
+                    if start < 0 or end < 0:
+                        buf = buf[start:] if start > 0 else buf
+                        break
+                    frame, buf = buf[start:end + 2], buf[end + 2:]
+                    with self._lock:
+                        self._frame, self._frame_at = frame, time.time()
+                        self._seq += 1
+                        self._lock.notify_all()
+                if len(buf) > 4_000_000:
+                    buf = b""
+                with self._lock:
+                    idle = time.time() - self._wanted_at > self.IDLE_SECONDS
+                if idle:
+                    break
+        finally:
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                proc.kill()
+            self._proc = None
+            with self._lock:
+                self._lock.notify_all()
+            LOG.info("Live camera stream stopped")
+
+
 class LocalCamera:
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
@@ -127,6 +233,7 @@ class LocalCamera:
         self._last_capture = 0.0
         self._active_device = ""
         self.pixy = PixyController(config)
+        self.stream = CameraStream(self)
 
     def _cfg(self) -> dict[str, Any]:
         return (self.config.get("camera") or {}).get("local") or {}
@@ -218,6 +325,12 @@ class LocalCamera:
         return None
 
     def capture(self) -> bytes | None:
+        # The live stream holds the camera; reuse its newest frame.
+        if self.stream.running():
+            frame = self.stream.latest() or self.stream.wait_frame(-1, timeout=3.0)[1]
+            if frame:
+                self._last_capture = time.time()
+                return frame
         configured = str(self._cfg().get("device") or "auto")
         if configured and configured != "auto":
             image = self._try_capture(configured)

@@ -128,11 +128,14 @@ class TestServerEndpoints(unittest.TestCase):
         # Temporary in-memory login; these endpoints require a session.
         cls.original_auth = CONFIG.get("auth")
         CONFIG["auth"] = {
-            "username": "test",
-            "password_hash": auth.hash_password("test-password"),
+            "users": {
+                "test": {"password_hash": auth.hash_password("test-password"), "role": "admin"},
+                "visitor": {"password_hash": auth.hash_password("test-password"), "role": "guest"},
+            },
             "secret": secrets.token_hex(32),
         }
-        cls.cookie = "%s=%s" % (auth.COOKIE_NAME, auth.make_session(CONFIG))
+        cls.cookie = "%s=%s" % (auth.COOKIE_NAME, auth.make_session(CONFIG, "test"))
+        cls.guest_cookie = "%s=%s" % (auth.COOKIE_NAME, auth.make_session(CONFIG, "visitor"))
         opener = urllib.request.build_opener()
         opener.addheaders = [("Cookie", cls.cookie)]
         urllib.request.install_opener(opener)
@@ -225,6 +228,31 @@ class TestServerEndpoints(unittest.TestCase):
                 plain.open(req)
             self.assertEqual(ctx.exception.code, 401, path)
         with plain.open(f"http://127.0.0.1:{self.port}/api/state") as resp:
+            self.assertEqual(resp.status, 200)
+
+    def test_guest_controls_but_no_camera(self):
+        import urllib.error
+        import urllib.request
+        guest = urllib.request.build_opener()
+        guest.addheaders = [("Cookie", self.guest_cookie)]
+        for method, path in (("GET", "/api/camera/snapshot"), ("GET", "/api/camera/stream"),
+                             ("POST", "/api/camera/look")):
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}{path}", method=method,
+                data=b"{}" if method == "POST" else None,
+                headers={"Content-Type": "application/json"},
+            )
+            with self.assertRaises(urllib.error.HTTPError, msg=path) as ctx:
+                guest.open(req)
+            self.assertEqual(ctx.exception.code, 403, path)
+        with guest.open(f"http://127.0.0.1:{self.port}/api/auth") as resp:
+            self.assertEqual(json.loads(resp.read()).get("role"), "guest")
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/intellicenter/open", method="POST",
+            data=json.dumps({"launch": False}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with guest.open(req) as resp:
             self.assertEqual(resp.status, 200)
 
     def test_get_intellicenter_scan_endpoint(self):

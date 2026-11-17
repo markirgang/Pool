@@ -2,14 +2,17 @@
 """Single-account login for the pool app.
 
 Credentials live in config.local.json (git-ignored) under "auth":
-    {"username": ..., "password_hash": "pbkdf2_sha256$<iter>$<salt>$<hash>",
+    {"users": {"admin": {"password_hash": "pbkdf2_sha256$...", "role": "admin"},
+               "guest": {"password_hash": "...", "role": "guest"}},
      "secret": <hex>}
+
+Roles: both can control the pool; only "admin" can see the camera.
 
 Sessions are stateless signed cookies (HMAC-SHA256 over user + expiry), so
 they survive server restarts. Changing the password rotates the secret,
 which logs out every existing session.
 
-Set or change the password from a terminal on the Pi:
+Add users or change passwords from a terminal on the Pi:
     .venv/bin/python auth.py
 """
 
@@ -61,9 +64,27 @@ def _auth_cfg(config: dict[str, Any]) -> dict[str, Any]:
     return auth if isinstance(auth, dict) else {}
 
 
-def is_configured(config: dict[str, Any]) -> bool:
+def users(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """{username: {"password_hash": ..., "role": "admin" | "guest"}}.
+
+    Older configs with a single username/password_hash count as one admin.
+    """
     auth = _auth_cfg(config)
-    return bool(auth.get("username") and auth.get("password_hash") and auth.get("secret"))
+    found = auth.get("users")
+    if isinstance(found, dict):
+        return {str(k): v for k, v in found.items() if isinstance(v, dict) and v.get("password_hash")}
+    if auth.get("username") and auth.get("password_hash"):
+        return {str(auth["username"]): {"password_hash": auth["password_hash"], "role": "admin"}}
+    return {}
+
+
+def role_of(config: dict[str, Any], username: str | None) -> str | None:
+    user = users(config).get(username or "")
+    return str(user.get("role") or "guest") if user else None
+
+
+def is_configured(config: dict[str, Any]) -> bool:
+    return bool(users(config) and _auth_cfg(config).get("secret"))
 
 
 def _sign(secret: str, payload: str) -> str:
@@ -71,10 +92,10 @@ def _sign(secret: str, payload: str) -> str:
     return base64.urlsafe_b64encode(mac.digest()).decode("ascii").rstrip("=")
 
 
-def make_session(config: dict[str, Any]) -> str:
+def make_session(config: dict[str, Any], username: str) -> str:
     auth = _auth_cfg(config)
     expires = int(time.time()) + SESSION_SECONDS
-    user = base64.urlsafe_b64encode(auth["username"].encode("utf-8")).decode("ascii").rstrip("=")
+    user = base64.urlsafe_b64encode(username.encode("utf-8")).decode("ascii").rstrip("=")
     payload = "%s.%d" % (user, expires)
     return payload + "." + _sign(auth["secret"], payload)
 
@@ -97,7 +118,7 @@ def session_user(config: dict[str, Any], token: str | None) -> str | None:
         user = base64.urlsafe_b64decode(padded).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
         return None
-    return user if user == auth["username"] else None
+    return user if user in users(config) else None
 
 
 def locked_out(client: str) -> bool:
@@ -108,19 +129,21 @@ def locked_out(client: str) -> bool:
         return len(recent) >= _MAX_FAILURES
 
 
-def check_login(config: dict[str, Any], client: str, username: str, password: str) -> bool:
+def check_login(config: dict[str, Any], client: str, username: str, password: str) -> str | None:
+    """Return the username on success, else None (and count the failure)."""
     if not is_configured(config) or locked_out(client):
-        return False
-    auth = _auth_cfg(config)
-    ok = hmac.compare_digest(str(username).strip().encode("utf-8"),
-                             auth["username"].encode("utf-8"))
-    ok = verify_password(str(password), auth["password_hash"]) and ok
+        return None
+    name = str(username).strip()
+    user = users(config).get(name)
+    # Always run the hash so timing doesn't reveal which usernames exist.
+    stored = user["password_hash"] if user else hash_password("x")
+    ok = verify_password(str(password), stored) and user is not None
     with _failures_lock:
         if ok:
             _failures.pop(client, None)
         else:
             _failures.setdefault(client, []).append(time.time())
-    return ok
+    return name if ok else None
 
 
 def _set_password_cli() -> None:
@@ -131,8 +154,13 @@ def _set_password_cli() -> None:
             local = json.load(fh)
     except (OSError, ValueError):
         local = {}
-    current = (local.get("auth") or {}).get("username", "")
-    username = input("Username [%s]: " % (current or "admin")).strip() or current or "admin"
+    current = users(local)
+    print("Users: %s" % (", ".join("%s (%s)" % (u, v.get("role", "guest")) for u, v in current.items()) or "none"))
+    username = input("Username to add or change [admin]: ").strip() or "admin"
+    default_role = (current.get(username) or {}).get("role") or ("admin" if username == "admin" else "guest")
+    role = input("Role, admin or guest [%s]: " % default_role).strip().lower() or default_role
+    if role not in ("admin", "guest"):
+        sys.exit("Role must be admin or guest")
     while True:
         password = getpass.getpass("New password (min 8 characters): ")
         if len(password) < 8:
@@ -142,17 +170,15 @@ def _set_password_cli() -> None:
             print("Passwords don't match, try again.")
             continue
         break
-    local["auth"] = {
-        "username": username,
-        "password_hash": hash_password(password),
-        "secret": secrets.token_hex(32),
-    }
+    current[username] = {"password_hash": hash_password(password), "role": role}
+    # A new secret logs out every existing session.
+    local["auth"] = {"users": current, "secret": secrets.token_hex(32)}
     tmp = path + ".tmp"
     with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
         json.dump(local, fh, indent=2)
         fh.write("\n")
     os.replace(tmp, path)
-    print("Saved login for '%s'. Restart the app: systemctl --user restart pool.service" % username)
+    print("Saved '%s' (%s). Restart the app: systemctl --user restart pool.service" % (username, role))
 
 
 if __name__ == "__main__":

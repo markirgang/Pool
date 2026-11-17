@@ -76,12 +76,24 @@
   // ------------------------------------------------------------------
   // Login: status is public; the camera and every control need a login.
   // ------------------------------------------------------------------
-  var authState = { configured: true, logged_in: false, username: null };
+  var authState = { configured: true, logged_in: false, username: null, role: null };
+
+  // Guests can control the pool; only the admin account sees the camera.
+  function canSeeCamera() {
+    return !!authState.logged_in && authState.role === "admin";
+  }
 
   function applyAuth(next) {
-    var was = authState.logged_in;
+    var was = canSeeCamera();
     authState = Object.assign({}, authState, next || {});
+    if (!authState.logged_in) authState.role = null;
     document.body.classList.toggle("logged-out", !authState.logged_in);
+    document.body.classList.toggle("no-camera", !!authState.logged_in && !canSeeCamera());
+    document.querySelectorAll(".camera-lock-text").forEach(function (el) {
+      el.textContent = authState.logged_in
+        ? "\uD83D\uDD12 Live video is available to the admin account only"
+        : "\uD83D\uDD12 Log in as admin to view the camera";
+    });
     var btn = $("authBtn");
     if (btn) {
       btn.textContent = authState.logged_in
@@ -89,8 +101,8 @@
         : "Log in";
       btn.classList.toggle("logged-in", !!authState.logged_in);
     }
-    if (!authState.logged_in) {
-      ["poolLiveVideo", "localCameraPreview"].forEach(function (id) {
+    if (!canSeeCamera()) {
+      ["poolLiveVideo", "localCameraPreview", "liveVideo"].forEach(function (id) {
         var img = $(id);
         if (img) img.removeAttribute("src");
       });
@@ -99,6 +111,7 @@
       if ($("camStatusText")) $("camStatusText").textContent = "CONNECTING";
       refreshLocalSnapshot();
     }
+    updateLiveVideo();
   }
 
   async function checkAuth() {
@@ -127,7 +140,7 @@
     $("authBtn").addEventListener("click", async function () {
       if (!authState.logged_in) { openLogin(); return; }
       try { await api("/api/logout", { method: "POST" }); } catch (e) {}
-      applyAuth({ logged_in: false, username: null });
+      applyAuth({ logged_in: false, username: null, role: null });
       toast("Logged out", "good");
     });
     $("closeLoginModal").addEventListener("click", closeLogin);
@@ -142,7 +155,7 @@
           body: JSON.stringify({ username: $("loginUser").value, password: $("loginPass").value })
         });
         closeLogin();
-        applyAuth({ configured: true, logged_in: true, username: res.username });
+        applyAuth({ configured: true, logged_in: true, username: res.username, role: res.role });
         toast("Logged in", "good");
       } catch (err) {
         $("loginError").textContent = err.message;
@@ -1374,7 +1387,7 @@
 
   function refreshLocalSnapshot() {
     var img = $("localCameraPreview");
-    if (!img || !authState.logged_in) return;
+    if (!img || !canSeeCamera()) return;
     img.onerror = function () { img.removeAttribute("src"); };
     img.src = "/api/camera/snapshot?t=" + Date.now();
   }
@@ -2538,17 +2551,41 @@
     }
   }
 
+  // The Live tab is the Control page with the camera in place of the 3D view.
+  var liveRetry = null;
+  function updateLiveVideo() {
+    var img = $("liveVideo");
+    if (!img) return;
+    var want = document.body.classList.contains("live-mode") && canSeeCamera() && !document.hidden;
+    if (want && !img.getAttribute("src")) {
+      img.onerror = function () {
+        img.removeAttribute("src");
+        clearTimeout(liveRetry);
+        liveRetry = setTimeout(updateLiveVideo, 3000);
+      };
+      img.src = "/api/camera/stream?t=" + Date.now();
+    } else if (!want && img.getAttribute("src")) {
+      img.removeAttribute("src");  // closes the stream connection
+    }
+  }
+
   function activateTab(name) {
     var wanted = name || "control";
+    var view = wanted === "live" ? "control" : wanted;
     var found = null;
     document.querySelectorAll(".tab").forEach(function (tab) {
       var isActive = tab.getAttribute("data-tab") === wanted;
       tab.classList.toggle("active", isActive);
       if (isActive) found = tab;
     });
-    document.querySelectorAll(".view").forEach(function (view) {
-      view.classList.toggle("active", view.id === "view-" + wanted);
+    document.querySelectorAll(".view").forEach(function (v) {
+      v.classList.toggle("active", v.id === "view-" + view);
     });
+    document.body.classList.toggle("live-mode", wanted === "live");
+    updateLiveVideo();
+    if (window.pool3d && typeof window.pool3d.resize === "function") {
+      setTimeout(window.pool3d.resize, 50);
+    }
     if (!found) return;
     if (wanted === "intellicenter") {
       loadIntelliCenter();
@@ -3383,6 +3420,7 @@
         if (history.replaceState) history.replaceState(null, "", "#" + name);
       });
     });
+    document.addEventListener("visibilitychange", updateLiveVideo);
     window.addEventListener("hashchange", function () {
       activateTab((location.hash || "#control").slice(1));
     });
@@ -3935,13 +3973,14 @@
 
     function refreshFrame() {
       if (!active) return;
-      if (!authState.logged_in) {
+      // No snapshots without camera access, or while the Live tab streams.
+      if (!canSeeCamera() || document.body.classList.contains("live-mode") || document.hidden) {
         setTimeout(refreshFrame, 1000);
         return;
       }
       var nextImg = new Image();
       nextImg.onload = function () {
-        if (!active || !authState.logged_in) return setTimeout(refreshFrame, 1000);
+        if (!active || !canSeeCamera()) return setTimeout(refreshFrame, 1000);
         img.src = nextImg.src;
         if ($("camStatusText")) $("camStatusText").textContent = "LIVE";
         setTimeout(refreshFrame, 400);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lighthouse Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=19">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -21,6 +21,7 @@
     <!-- Center Navigation Tabs -->
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="control">Control</button>
+      <button class="tab" data-tab="live">Live</button>
       <button class="tab" data-tab="intellicenter">IntelliCenter</button>
       <button class="tab" data-tab="panel">3D Panel</button>
       <button class="tab" data-tab="logic">🧠 Logic</button>
@@ -249,6 +250,13 @@
             </div>
           </div>
 
+          <!-- Live tab: full-size camera video in place of the 3D animation -->
+          <div class="live-stage" id="liveStage">
+            <img id="liveVideo" alt="Live pool camera">
+            <div class="live-badge"><span class="status-dot"></span> LIVE &middot; Lighthouse Pool</div>
+            <div class="video-locked live-locked"><span class="camera-lock-text">&#128274; Log in as admin to view the camera</span></div>
+          </div>
+
           <!-- Bottom HUD Stats Overlay -->
           <div class="viz-stats">
             <div><span>Mode</span><strong id="vizMode" class="chip live" style="padding:2px 8px; font-size:0.75rem;">POOL</strong></div>
@@ -273,7 +281,7 @@
             <div class="pool-video-stage">
               <img id="poolLiveVideo" alt="Live Pool Camera" class="pool-camera-feed">
               <div class="video-locked" id="poolVideoLocked">
-                <span>&#128274; Log in to view the camera</span>
+                <span class="camera-lock-text">&#128274; Log in as admin to view the camera</span>
               </div>
               <div class="video-overlay-bar">
                 <span>Lighthouse Pool</span>
@@ -2861,9 +2869,9 @@ sudo systemctl enable --now cloudflared</code></pre>
     </form>
   </div>
 
-  <script src="pool3d.js?v=9"></script>
+  <script src="pool3d.js?v=10"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=18"></script>
   <script src="audio_output.js?v=2"></script>
     <script src="ai_model_selector.js?v=1"></script>
 </body>
