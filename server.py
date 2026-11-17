@@ -906,6 +906,16 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
     if local and not _has_wake_word(transcript):
         LOG.info("Local mic: ignored speech without wake word: %r", transcript[:120])
         return {"text": "", "ignored": True, "state": _state(), "transcription": transcript}
+    # Speak only when spoken to: a bare "Iggy" (often noise misheard as his
+    # name) or Iggy's own reply picked up from the speaker gets no answer.
+    with LAST_AI_LOCK:
+        last_text, last_at = str(LAST_AI.get("text") or ""), float(LAST_AI.get("at") or 0)
+    if local and voice_fast.is_only_wake_word(transcript):
+        LOG.info("Local mic: ignored wake word with no request: %r", transcript[:60])
+        return {"text": "", "ignored": True, "state": _state(), "transcription": transcript}
+    if local and time.time() - last_at < 30 and voice_fast.is_echo(transcript, last_text):
+        LOG.info("Local mic: ignored Iggy's own reply heard from the speaker: %r", transcript[:80])
+        return {"text": "", "ignored": True, "state": _state(), "transcription": transcript}
 
     fast = voice_fast.match_command(transcript, _state())
     if fast:

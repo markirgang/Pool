@@ -25,10 +25,12 @@ LOG = logging.getLogger("pool.voice")
 DEFAULT_STT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_REPLY_MODEL = "gemini-3.1-flash-lite"
 
+# Don't mention the assistant's name here: the model then "hears" Iggy in
+# background noise and Iggy answers when nobody spoke to him.
 _TRANSCRIBE_PROMPT = (
-    "Transcribe this speech exactly as spoken, in English. Reply with only the "
-    "words, no quotes or labels. If there is no clear speech, reply with nothing. "
-    "The listener's assistant is named Iggy."
+    "Transcribe the human speech in this recording exactly as spoken, in English. "
+    "Reply with only the words, no quotes or labels. If there is no clear human "
+    "speech (silence, noise, music, clicks), reply with exactly: NONE"
 )
 
 
@@ -49,10 +51,26 @@ def transcribe(api_key: str, audio: bytes, mime_type: str, model: str = "",
         raise RuntimeError(text[:200])
     if text == "Done." or result.get("action"):
         return ""
-    # Models sometimes describe non-speech, e.g. "[keyboard clicking]".
-    if re.fullmatch(r"[\[(].*[\])]\.?", text):
+    # Non-speech markers, e.g. "NONE", "[keyboard clicking]", "<noise>".
+    if re.fullmatch(r"(?i)none\.?|[\[(<].*[\])>]\.?", text):
         return ""
     return text
+
+
+def is_only_wake_word(text: str) -> bool:
+    """True for "Iggy", "Hey Iggy!", "Iggy Iggy Iggy": a name with no request."""
+    rest = re.sub(r"(?i)\b(hey|hi|ok|okay|yo|oh|um|uh|iggy|iggie|iggi|iggey|igy|ziggy)\b", "", text or "")
+    return not re.sub(r"[\s,.!?'-]", "", rest)
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z']+", (text or "").lower()))
+
+
+def is_echo(text: str, last_reply: str) -> bool:
+    """True when the mic most likely heard Iggy's own reply from the speaker."""
+    heard, said = _words(text) - {"iggy"}, _words(last_reply) - {"iggy"}
+    return len(heard) >= 3 and len(heard & said) / len(heard) >= 0.6
 
 
 _VISION = re.compile(
@@ -125,9 +143,15 @@ def match_command(transcript: str, state: dict[str, Any]) -> tuple[str | None, d
     text = _clean(transcript)
     if not text or len(text.split()) > 14 or re.search(r"\b(don't|do not|why|if|when|after|before|schedule|minutes?|hours?)\b", text):
         return None
+    # Questions ("which lights are on?") never run commands; only the
+    # temperature/salt answers below may handle them.
+    question = bool(re.match(r"(what|which|is|are|how|does|do|did|why|where|who|whose|tell me|can you tell)\b", text))
     # Two requests in one sentence ("the spa and the heater") go to the AI.
     if re.search(r"\b(and|then|also|but)\b", re.sub(r"red,? white and blue", "", text)):
         return None
+
+    if question:
+        return _answer(text, state)
 
     # Light colors and party mode
     if re.search(r"\bparty\b", text) and not re.search(r"\boff\b", text):
@@ -178,6 +202,11 @@ def match_command(transcript: str, state: dict[str, Any]) -> tuple[str | None, d
     if re.search(r"\bpool mode\b|\bswitch to (the )?pool\b", text):
         return ("set_mode", {"mode": "pool"}, "Switching to pool mode.")
 
+    return _answer(text, state)
+
+
+def _answer(text: str, state: dict[str, Any]) -> tuple[str | None, dict, str] | None:
+    """Instant answers to temperature and salt questions; anything else -> AI."""
     if re.search(r"\b(temperature|temp|how (warm|hot|cold))\b", text) and not re.search(r"\b(set|change|raise|lower)\b", text):
         parts = []
         for body in ("pool", "spa"):

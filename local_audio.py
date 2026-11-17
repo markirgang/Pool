@@ -649,7 +649,9 @@ class LocalAudio:
             self._last_error = "Local speaker failed: %s" % exc
             LOG.warning(self._last_error)
         finally:
-            self._speaking_until = time.time() + 0.4
+            # Keep the mic muted briefly after playback so the speaker's tail
+            # and room echo of Iggy's own voice aren't heard as a new request.
+            self._speaking_until = time.time() + 1.5
             for path in (mp3_path, wav_path):
                 if path and os.path.exists(path):
                     try:
