@@ -431,7 +431,7 @@ class LocalAudio:
                 LOG.info("Local microphone open on %s", device)
             self._active_input = device
             threshold = int(cfg.get("speech_rms", 450))
-            silence_needed = int(cfg.get("silence_ms", 600)) / 1000.0
+            silence_needed = int(cfg.get("silence_ms", 380)) / 1000.0
             min_speech = int(cfg.get("min_speech_ms", 350)) / 1000.0
             max_record = int(cfg.get("max_record_seconds", 8))
             pre_roll: list[bytes] = []
@@ -468,7 +468,7 @@ class LocalAudio:
                 # Re-read so the sensitivity slider takes effect immediately.
                 cfg = self._local_cfg()
                 threshold = int(cfg.get("speech_rms", 450))
-                silence_needed = max(300, min(10000, int(cfg.get("silence_ms", 1000)))) / 1000.0
+                silence_needed = max(300, min(10000, int(cfg.get("silence_ms", 380)))) / 1000.0
                 cur_rms = _rms(data)
                 self._current_rms = cur_rms
                 voiced = cur_rms >= threshold
@@ -825,3 +825,69 @@ def record_local_audio(duration=3.5, device="default"):
             except Exception:
                 pass
     return None
+
+
+# ---------------------------------------------------------------------
+# Multi-accent speech synthesis (Edge-TTS neural & gTTS fallback)
+# ---------------------------------------------------------------------
+_TTS_CACHE = {}
+
+VOICE_MAP = {
+    'ai_butler_uk': ('en-GB-RyanNeural', 'en', 'co.uk'),
+    'ai_female_uk': ('en-GB-SoniaNeural', 'en', 'co.uk'),
+    'ai_male_uk': ('en-GB-RyanNeural', 'en', 'co.uk'),
+    'ai_female_us': ('en-US-JennyNeural', 'en', 'com'),
+    'ai_male_us': ('en-US-GuyNeural', 'en', 'us'),
+    'ai_female_au': ('en-AU-NatashaNeural', 'en', 'com.au'),
+    'ai_male_au': ('en-AU-WilliamMultilingualNeural', 'en', 'com.au'),
+    'ai_female_ca': ('en-CA-ClaraNeural', 'en', 'ca'),
+    'ai_male_ca': ('en-CA-LiamNeural', 'en', 'ca'),
+    'ai_female_in': ('en-IN-NeerjaNeural', 'en', 'co.in'),
+    'ai_male_in': ('en-IN-PrabhatNeural', 'en', 'co.in'),
+    'ai_female_ie': ('en-IE-EmilyNeural', 'en', 'ie'),
+    'ai_male_ie': ('en-IE-ConnorNeural', 'en', 'ie'),
+    'ai_female_za': ('en-ZA-LeahNeural', 'en', 'co.za'),
+    'ai_male_za': ('en-ZA-LukeNeural', 'en', 'co.za'),
+    'ai_female_ng': ('en-NG-EzinneNeural', 'en', 'com.ng'),
+    'ai_male_ng': ('en-NG-AbeoNeural', 'en', 'com.ng'),
+    'ai_female_nz': ('en-NZ-MollyNeural', 'en', 'co.nz'),
+    'ai_male_nz': ('en-NZ-MitchellNeural', 'en', 'co.nz'),
+}
+
+async def _edge_speak_async(text: str, voice_name: str) -> bytes:
+    import edge_tts
+    comm = edge_tts.Communicate(text, voice_name)
+    chunks = []
+    async for c in comm.stream():
+        if c['type'] == 'audio':
+            chunks.append(c['data'])
+    return b''.join(chunks)
+
+def synthesize_voice(text: str, voice_id: str = 'ai_butler_uk') -> bytes:
+    clean = re.sub(r'\*[^*]*\*', '', text or 'Hello').strip() or 'Hello'
+    voice_key = str(voice_id or 'ai_butler_uk').strip()
+    cache_key = (clean, voice_key)
+    if cache_key in _TTS_CACHE:
+        return _TTS_CACHE[cache_key]
+
+    edge_voice, lang, tld = VOICE_MAP.get(voice_key, ('en-GB-RyanNeural', 'en', 'co.uk'))
+    try:
+        import asyncio
+        data = asyncio.run(_edge_speak_async(clean, edge_voice))
+        if data:
+            if len(_TTS_CACHE) > 128:
+                _TTS_CACHE.pop(next(iter(_TTS_CACHE)))
+            _TTS_CACHE[cache_key] = data
+            return data
+    except Exception:
+        pass
+
+    import io
+    from gtts import gTTS
+    mp3 = io.BytesIO()
+    gTTS(text=clean, lang=lang, tld=tld).write_to_fp(mp3)
+    data = mp3.getvalue()
+    if len(_TTS_CACHE) > 128:
+        _TTS_CACHE.pop(next(iter(_TTS_CACHE)))
+    _TTS_CACHE[cache_key] = data
+    return data
