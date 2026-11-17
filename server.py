@@ -902,7 +902,7 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
             "transcription": result.get("transcription") or "",
         })
     if text and LOCAL_AUDIO:
-        voice = assistant.get("server_voice") or "us"
+        voice = assistant.get("server_voice") or local_audio.DEFAULT_SERVER_VOICE
         data, audio_mime = LOCAL_AUDIO.synthesize(text, voice)
         if data:
             result["audio_b64"] = base64.b64encode(data).decode("ascii")

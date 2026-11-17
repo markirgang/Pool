@@ -449,14 +449,14 @@
             </label>
             <label>Voice source
               <select id="voiceSource" class="select">
-                <option value="browser">Browser voices</option>
-                <option value="server">Server voice profiles</option>
+                <option value="server">Pi voices (same on every device)</option>
+                <option value="browser">This device&rsquo;s own voices</option>
               </select>
             </label>
-            <label>Browser voice
+            <label>This device&rsquo;s voice
               <select id="browserVoice" class="select"></select>
             </label>
-            <label>Server / local voice
+            <label>Pi voice (default: Ryan, British male)
               <select id="serverVoice" class="select"></select>
             </label>
           </div>
@@ -2863,7 +2863,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=9"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=16"></script>
+  <script src="app.js?v=17"></script>
   <script src="audio_output.js?v=2"></script>
     <script src="ai_model_selector.js?v=1"></script>
 </body>

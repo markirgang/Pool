@@ -620,7 +620,7 @@
       iguanaSay(text, Math.max(2800, text.length * 55));
       return;
     }
-    var source = ($("voiceSource") && $("voiceSource").value) || "browser";
+    var source = ($("voiceSource") && $("voiceSource").value) || "server";
     if (source === "server" && audioB64) {
       playServerAudio(text, audioB64, audioMime);
       return;
@@ -1018,7 +1018,7 @@
     assistantCfg = a || {};
     var personality = localStorage.getItem("pool.personality") || assistantCfg.personality || "classic";
     var custom = localStorage.getItem("pool.customPersonality") || assistantCfg.personality_custom || "";
-    var source = localStorage.getItem("pool.voiceSource") || "browser";
+    var source = localStorage.getItem("pool.voiceSource") || "server";
     var rate = localStorage.getItem("pool.rate") || assistantCfg.rate || 1.02;
     var pitch = localStorage.getItem("pool.pitch") || assistantCfg.pitch || 1.06;
     if ($("personalitySelect")) $("personalitySelect").value = personality;
@@ -1045,25 +1045,48 @@
     if (!select) return;
     voiceList = ("speechSynthesis" in window) ? window.speechSynthesis.getVoices() : [];
     var saved = localStorage.getItem("pool.browserVoice") || (config && config.assistant && config.assistant.browser_voice) || "";
-    var html = '<option value="">Default browser voice</option>';
-    voiceList.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).forEach(function (voice) {
-      html += '<option value="' + escapeHtml(voice.name) + '">' +
-        escapeHtml(voice.name) + " (" + escapeHtml(voice.lang) + ")</option>";
+    // Each device offers its own voices; group them by language/region
+    // (English first) and default to a British male voice when available.
+    var sorted = voiceList.slice().sort(function (a, b) {
+      var ae = /^en/i.test(a.lang) ? 0 : 1, be = /^en/i.test(b.lang) ? 0 : 1;
+      return ae - be || a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name);
     });
-    select.innerHTML = html;
-    if (saved) {
-      select.value = saved;
-      if (!select.value) select.value = "";
+    var items = sorted.map(function (voice) {
+      var region = voice.lang;
+      try {
+        var names = new Intl.DisplayNames([navigator.language || "en"], { type: "language" });
+        region = names.of(voice.lang) || voice.lang;
+      } catch (e) {}
+      var gender = /\bfemale\b|woman/i.test(voice.name) ? " \u2014 female"
+        : (/\bmale\b|\bman\b/i.test(voice.name) ? " \u2014 male" : "");
+      return { id: voice.name, name: voice.name + gender, group: region };
+    });
+    fillSelect(select, items, "Default browser voice", saved);
+    if (!saved || !select.value) {
+      var british = sorted.filter(function (v) { return /^en[-_]GB/i.test(v.lang); });
+      var male = british.filter(function (v) {
+        return !/female/i.test(v.name) &&
+          /\bmale\b|ryan|george|daniel|arthur|thomas|oliver|alfie|elliot|noah|ethan|harry|lewis/i.test(v.name);
+      })[0] || british[0];
+      if (male) select.value = male.name;
     }
   }
 
   function fillSelect(select, items, defaultLabel, saved) {
     if (!select) return;
-    var html = '<option value="">' + escapeHtml(defaultLabel) + "</option>";
+    var html = defaultLabel === null ? "" : '<option value="">' + escapeHtml(defaultLabel) + "</option>";
+    var group = null;
     (items || []).forEach(function (item) {
+      // Items with a "group" (e.g. voices by country) are shown in optgroups.
+      if (item.group && item.group !== group) {
+        if (group !== null) html += "</optgroup>";
+        group = item.group;
+        html += '<optgroup label="' + escapeHtml(group) + '">';
+      }
       html += '<option value="' + escapeHtml(item.id || item.name || "") + '">' +
         escapeHtml(item.name || item.id || "") + "</option>";
     });
+    if (group !== null) html += "</optgroup>";
     select.innerHTML = html;
     if (saved) {
       select.value = saved;
@@ -1134,9 +1157,10 @@
         setMicSensitivity(micSensitivityPercent, false);
       }
 
-      var savedVoice = localStorage.getItem("pool.serverVoice") ||
-        (config && config.assistant && config.assistant.server_voice) || "us";
-      fillSelect($("serverVoice"), localAudio.voices, "Automatic voice", savedVoice);
+      // The Pi voice is a shared setting, so the Pi's saved choice wins.
+      var savedVoice = (config && config.assistant && config.assistant.server_voice) ||
+        localStorage.getItem("pool.serverVoice") || localAudio.default_voice || "gb-male";
+      fillSelect($("serverVoice"), localAudio.voices, null, savedVoice);
       var status = localAudio.local || {};
       var speakerRoute = ("setSinkId" in HTMLMediaElement.prototype)
         ? "Browser speaker routing supported" : "Browser speaker routing not supported by this browser";
@@ -1156,7 +1180,7 @@
         personality: $("personalitySelect").value,
         personality_custom: $("personalityCustom").value.trim(),
         browser_voice: $("browserVoice").value,
-        server_voice: $("serverVoice").value || "us",
+        server_voice: $("serverVoice").value || "gb-male",
         rate: parseFloat($("speakRate").value) || 1.02,
         pitch: parseFloat($("speakPitch").value) || 1.06
       }

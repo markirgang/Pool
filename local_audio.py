@@ -24,33 +24,74 @@ from typing import Any, Callable
 
 LOG = logging.getLogger("pool.audio")
 
-# Microsoft Edge neural voices (free, no key; needs internet), one male and
-# one female per country. "tld" picks the matching Google voice as fallback.
-_EDGE_VOICES = [
-    ("us", "com", "United States", "Guy", "en-US-GuyNeural", "Jenny", "en-US-JennyNeural"),
-    ("us2", "com", "United States", "Andrew", "en-US-AndrewNeural", "Aria", "en-US-AriaNeural"),
-    ("gb", "co.uk", "British", "Ryan", "en-GB-RyanNeural", "Sonia", "en-GB-SoniaNeural"),
-    ("gb2", "co.uk", "British", "Thomas", "en-GB-ThomasNeural", "Libby", "en-GB-LibbyNeural"),
-    ("au", "com.au", "Australian", "William", "en-AU-WilliamMultilingualNeural", "Natasha", "en-AU-NatashaNeural"),
-    ("ca", "ca", "Canadian", "Liam", "en-CA-LiamNeural", "Clara", "en-CA-ClaraNeural"),
-    ("ie", "ie", "Irish", "Connor", "en-IE-ConnorNeural", "Emily", "en-IE-EmilyNeural"),
-    ("nz", "com.au", "New Zealand", "Mitchell", "en-NZ-MitchellNeural", "Molly", "en-NZ-MollyNeural"),
-    ("in", "co.in", "Indian", "Prabhat", "en-IN-PrabhatNeural", "Neerja", "en-IN-NeerjaNeural"),
-    ("za", "co.za", "South African", "Luke", "en-ZA-LukeNeural", "Leah", "en-ZA-LeahNeural"),
-    ("ng", "com", "Nigerian", "Abeo", "en-NG-AbeoNeural", "Ezinne", "en-NG-EzinneNeural"),
-    ("ke", "com", "Kenyan", "Chilemba", "en-KE-ChilembaNeural", "Asilia", "en-KE-AsiliaNeural"),
-    ("sg", "com", "Singaporean", "Wayne", "en-SG-WayneNeural", "Luna", "en-SG-LunaNeural"),
-    ("ph", "com", "Filipino", "James", "en-PH-JamesNeural", "Rosa", "en-PH-RosaNeural"),
+# Microsoft Edge neural voices (free, no key; needs internet). Every English
+# voice the service offers, grouped by country. "tld" picks the matching
+# Google voice as a fallback. The first male/female per country keep the
+# short "<country>-male" / "<country>-female" keys.
+_EDGE_COUNTRIES = [
+    # key, Google tld, country label, [(name, gender, voice id), ...]
+    ("gb", "co.uk", "United Kingdom", [
+        ("Ryan", "male", "en-GB-RyanNeural"), ("Sonia", "female", "en-GB-SoniaNeural"),
+        ("Thomas", "male", "en-GB-ThomasNeural"), ("Libby", "female", "en-GB-LibbyNeural"),
+        ("Maisie", "female (child)", "en-GB-MaisieNeural")]),
+    ("us", "com", "United States", [
+        ("Guy", "male", "en-US-GuyNeural"), ("Jenny", "female", "en-US-JennyNeural"),
+        ("Andrew", "male", "en-US-AndrewNeural"), ("Aria", "female", "en-US-AriaNeural"),
+        ("Brian", "male", "en-US-BrianNeural"), ("Ava", "female", "en-US-AvaNeural"),
+        ("Christopher", "male", "en-US-ChristopherNeural"), ("Emma", "female", "en-US-EmmaNeural"),
+        ("Eric", "male", "en-US-EricNeural"), ("Michelle", "female", "en-US-MichelleNeural"),
+        ("Roger", "male", "en-US-RogerNeural"), ("Ana", "female (child)", "en-US-AnaNeural"),
+        ("Steffan", "male", "en-US-SteffanNeural"),
+        ("Andrew, multilingual", "male", "en-US-AndrewMultilingualNeural"),
+        ("Ava, multilingual", "female", "en-US-AvaMultilingualNeural"),
+        ("Brian, multilingual", "male", "en-US-BrianMultilingualNeural"),
+        ("Emma, multilingual", "female", "en-US-EmmaMultilingualNeural")]),
+    ("au", "com.au", "Australia", [
+        ("William", "male", "en-AU-WilliamMultilingualNeural"), ("Natasha", "female", "en-AU-NatashaNeural")]),
+    ("ca", "ca", "Canada", [
+        ("Liam", "male", "en-CA-LiamNeural"), ("Clara", "female", "en-CA-ClaraNeural")]),
+    ("ie", "ie", "Ireland", [
+        ("Connor", "male", "en-IE-ConnorNeural"), ("Emily", "female", "en-IE-EmilyNeural")]),
+    ("nz", "com.au", "New Zealand", [
+        ("Mitchell", "male", "en-NZ-MitchellNeural"), ("Molly", "female", "en-NZ-MollyNeural")]),
+    ("in", "co.in", "India", [
+        ("Prabhat", "male", "en-IN-PrabhatNeural"), ("Neerja", "female", "en-IN-NeerjaNeural"),
+        ("Neerja, expressive", "female", "en-IN-NeerjaExpressiveNeural")]),
+    ("za", "co.za", "South Africa", [
+        ("Luke", "male", "en-ZA-LukeNeural"), ("Leah", "female", "en-ZA-LeahNeural")]),
+    ("ng", "com", "Nigeria", [
+        ("Abeo", "male", "en-NG-AbeoNeural"), ("Ezinne", "female", "en-NG-EzinneNeural")]),
+    ("ke", "com", "Kenya", [
+        ("Chilemba", "male", "en-KE-ChilembaNeural"), ("Asilia", "female", "en-KE-AsiliaNeural")]),
+    ("tz", "com", "Tanzania", [
+        ("Elimu", "male", "en-TZ-ElimuNeural"), ("Imani", "female", "en-TZ-ImaniNeural")]),
+    ("sg", "com", "Singapore", [
+        ("Wayne", "male", "en-SG-WayneNeural"), ("Luna", "female", "en-SG-LunaNeural")]),
+    ("ph", "com", "Philippines", [
+        ("James", "male", "en-PH-JamesNeural"), ("Rosa", "female", "en-PH-RosaNeural")]),
+    ("hk", "com", "Hong Kong", [
+        ("Sam", "male", "en-HK-SamNeural"), ("Yan", "female", "en-HK-YanNeural")]),
 ]
+_OLD_ALIASES = {  # keys used before the full list, kept so saved settings still work
+    "us2-male": "en-US-AndrewNeural", "us2-female": "en-US-AriaNeural",
+    "gb2-male": "en-GB-ThomasNeural", "gb2-female": "en-GB-LibbyNeural",
+}
+
+DEFAULT_SERVER_VOICE = "gb-male"  # Ryan, British male
 
 VOICE_PROFILES = {}
-for _key, _tld, _country, _male, _male_id, _female, _female_id in _EDGE_VOICES:
-    VOICE_PROFILES["%s-male" % _key] = {
-        "name": "%s (%s, male)" % (_male, _country), "engine": "edge", "voice": _male_id,
-        "gender": "male", "lang": "en", "tld": _tld, "slow": False}
-    VOICE_PROFILES["%s-female" % _key] = {
-        "name": "%s (%s, female)" % (_female, _country), "engine": "edge", "voice": _female_id,
-        "gender": "female", "lang": "en", "tld": _tld, "slow": False}
+for _key, _tld, _country, _voices in _EDGE_COUNTRIES:
+    _seen = set()
+    for _name, _gender, _voice in _voices:
+        _base = _gender.split()[0]
+        _id = "%s-%s" % (_key, _base) if _base not in _seen and "(" not in _gender else _voice
+        _seen.add(_base)
+        VOICE_PROFILES[_id] = {
+            "name": "%s (%s)" % (_name, _gender), "engine": "edge", "voice": _voice,
+            "gender": _base, "country": _country, "lang": "en", "tld": _tld, "slow": False}
+for _alias, _voice in _OLD_ALIASES.items():
+    _match = next(v for v in VOICE_PROFILES.values() if v["voice"] == _voice)
+    VOICE_PROFILES[_alias] = dict(_match, hidden=True)
 
 VOICE_PROFILES.update({
     "us": {"name": "Basic Google voice (US)", "lang": "en", "tld": "com", "slow": False},
@@ -329,9 +370,11 @@ class LocalAudio:
             "inputs": captures,
             "outputs": playbacks,
             "voices": [
-                {"id": key, "name": value["name"]}
-                for key, value in VOICE_PROFILES.items()
+                {"id": key, "name": value["name"],
+                 "group": value.get("country") or "Basic Google voices (no gender choice)"}
+                for key, value in VOICE_PROFILES.items() if not value.get("hidden")
             ],
+            "default_voice": DEFAULT_SERVER_VOICE,
             "local": self.status(),
         }
 
@@ -486,7 +529,8 @@ class LocalAudio:
         clean = (text or "").strip()
         if not clean:
             return None, ""
-        profile = VOICE_PROFILES.get(str(voice_id or "").strip() or "us", VOICE_PROFILES["us"])
+        profile = VOICE_PROFILES.get(str(voice_id or "").strip() or DEFAULT_SERVER_VOICE,
+                                     VOICE_PROFILES[DEFAULT_SERVER_VOICE])
         key = (clean, str(voice_id or "us"))
         cached = self._cache.get(key)
         if cached:
