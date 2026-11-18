@@ -119,15 +119,15 @@
     "local": {
       "input_device": "default",
       "output_device": "default",
-      "speech_rms": 650,
+      "speech_rms": 560,
       "silence_ms": 1000,
       "min_speech_ms": 350,
       "max_record_seconds": 8,
       "auto_transcribe": true
     },
     "browser": {
-      "mic_device": "",
-      "speaker_device": "",
+      "mic_device": "local:default",
+      "speaker_device": "remote:",
       "voice_source": "local",
       "speaker_dest": "local"
     }
@@ -138,8 +138,9 @@
       "width": 640,
       "vision_on_voice": true,
       "pixy_mode": "tracking",
-      "stream_size": "640x360",
-      "stream_fps": 10
+      "stream_size": "480x270",
+      "stream_fps": 10,
+      "stream_quality": 8
     },
     "browser": {
       "device": ""

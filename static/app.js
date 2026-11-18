@@ -2560,20 +2560,69 @@
   }
 
   // The Live tab is the Control page with the camera in place of the 3D view.
-  var liveRetry = null;
-  function updateLiveVideo() {
+  // Frames are fetched one at a time: the next request goes out only after
+  // the previous frame arrives, so a slow connection gets fewer frames but
+  // never falls behind (a continuous stream builds up delay through buffers).
+  var liveLoop = { running: false, timer: null, url: null };
+  var LIVE_MIN_INTERVAL = 100;  // ms, at most ~10 frames per second
+
+  function liveWanted() {
+    return document.body.classList.contains("live-mode") && canSeeCamera() && !document.hidden;
+  }
+
+  function fetchLiveFrame() {
+    if (!liveWanted()) { liveLoop.running = false; return; }
+    var started = Date.now();
+    fetch("/api/camera/frame?t=" + started, { cache: "no-store" }).then(function (resp) {
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      return resp.blob();
+    }).then(function (blob) {
+      var img = $("liveVideo");
+      if (img && liveWanted()) {
+        var url = URL.createObjectURL(blob);
+        img.onload = function () {
+          if (liveLoop.url && liveLoop.url !== url) URL.revokeObjectURL(liveLoop.url);
+          liveLoop.url = url;
+        };
+        img.src = url;
+      }
+      liveLoop.timer = setTimeout(fetchLiveFrame, Math.max(0, LIVE_MIN_INTERVAL - (Date.now() - started)));
+    }).catch(function () {
+      liveLoop.timer = setTimeout(fetchLiveFrame, 2000);
+    });
+  }
+
+  // The continuous stream is used first: over the Cloudflare tunnel each
+  // separate request costs a full round trip (~0.3 s+), so frame-by-frame
+  // polling is kept only as a fallback if the stream fails.
+  function startLiveStream() {
     var img = $("liveVideo");
     if (!img) return;
-    var want = document.body.classList.contains("live-mode") && canSeeCamera() && !document.hidden;
-    if (want && !img.getAttribute("src")) {
-      img.onerror = function () {
-        img.removeAttribute("src");
-        clearTimeout(liveRetry);
-        liveRetry = setTimeout(updateLiveVideo, 3000);
-      };
-      img.src = "/api/camera/stream?t=" + Date.now();
-    } else if (!want && img.getAttribute("src")) {
-      img.removeAttribute("src");  // closes the stream connection
+    liveLoop.mode = "stream";
+    img.onload = null;
+    img.onerror = function () {
+      if (!liveWanted() || liveLoop.mode !== "stream") return;
+      liveLoop.mode = "frames";
+      img.onerror = null;
+      img.removeAttribute("src");
+      fetchLiveFrame();
+    };
+    img.src = "/api/camera/stream?t=" + Date.now();
+  }
+
+  function updateLiveVideo() {
+    if (liveWanted()) {
+      if (!liveLoop.running) {
+        liveLoop.running = true;
+        startLiveStream();
+      }
+    } else {
+      clearTimeout(liveLoop.timer);
+      liveLoop.running = false;
+      liveLoop.mode = null;
+      var img = $("liveVideo");
+      if (img) { img.onerror = null; img.removeAttribute("src"); }  // closes the stream
+      if (liveLoop.url) { URL.revokeObjectURL(liveLoop.url); liveLoop.url = null; }
     }
   }
 
@@ -3998,7 +4047,7 @@
         if ($("camStatusText")) $("camStatusText").textContent = "STANDBY";
         setTimeout(refreshFrame, 2000);
       };
-      nextImg.src = "/api/camera/snapshot?t=" + Date.now();
+      nextImg.src = "/api/camera/frame?t=" + Date.now();
     }
     refreshFrame();
   }

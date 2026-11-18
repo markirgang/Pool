@@ -413,6 +413,12 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": "Camera unavailable"}, status=503)
             return
         boundary = "poolframe"
+        # A small send buffer stops frames queuing up on slow links: when the
+        # viewer can't keep up, older frames are skipped instead of delayed.
+        try:
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 32 * 1024)
+        except OSError:
+            pass
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=" + boundary)
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -673,7 +679,10 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 "cameras": LOCAL_CAMERA.devices() if LOCAL_CAMERA else [],
                 "status": LOCAL_CAMERA.status() if LOCAL_CAMERA else None,
             })
-        elif path in ("/api/camera/snapshot", "/api/camera/frame"):
+        elif path == "/api/camera/frame":
+            # Live view polls this: newest small frame from the shared stream.
+            self.send_image(LOCAL_CAMERA.stream.frame() if LOCAL_CAMERA else None)
+        elif path == "/api/camera/snapshot":
             self.send_image(LOCAL_CAMERA.capture() if LOCAL_CAMERA else None)
         elif path == "/api/alexa":
             self.send_json(alexa_devices_preview(CONTROLLER))

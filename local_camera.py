@@ -165,6 +165,12 @@ class CameraStream:
             self._thread.start()
             return True
 
+    def frame(self, timeout: float = 4.0) -> bytes | None:
+        """Newest frame for frame-by-frame viewers, starting the camera if needed."""
+        if not self.ensure():
+            return None
+        return self.latest() or self.wait_frame(-1, timeout=timeout)[1]
+
     def latest(self, max_age: float = 2.0) -> bytes | None:
         with self._lock:
             if self._frame and time.time() - self._frame_at <= max_age:
@@ -172,20 +178,27 @@ class CameraStream:
         return None
 
     def wait_frame(self, after_seq: int, timeout: float = 5.0) -> tuple[int, bytes | None]:
+        """Wait for a frame newer than after_seq (or the first frame at all)."""
+        deadline = time.time() + timeout
         with self._lock:
             self._wanted_at = time.time()
-            if self._seq <= after_seq:
-                self._lock.wait(timeout)
+            while (self._frame is None or self._seq <= after_seq) and time.time() < deadline:
+                self._lock.wait(deadline - time.time())
             return self._seq, self._frame
 
     def _run(self, device: str) -> None:
-        # 640x360 keeps the camera's 16:9 shape at ~39 KB/frame (1024x576 was
-        # ~86 KB), so live video stays smooth over the Cloudflare tunnel.
-        size = str(self.camera._cfg().get("stream_size") or "640x360")
+        # The PIXY's 640x360 MJPEG (~39 KB/frame) is thinned to stream_fps and
+        # re-compressed to stream_size (default 480x270, ~13 KB/frame) so live
+        # video stays quick over the Cloudflare tunnel. Costs ~4% of one core.
+        cfg = self.camera._cfg()
+        width, _, height = str(cfg.get("stream_size") or "480x270").partition("x")
+        fps = max(1, min(30, int(cfg.get("stream_fps", 10))))
+        quality = max(2, min(31, int(cfg.get("stream_quality", 8))))
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
-               "-f", "v4l2", "-input_format", "mjpeg", "-video_size", size,
+               "-f", "v4l2", "-input_format", "mjpeg", "-video_size", "640x360",
                "-framerate", "30", "-i", device,
-               "-c:v", "copy", "-bsf:v", "mjpeg2jpeg", "-f", "mjpeg", "pipe:1"]
+               "-vf", "fps=%d,scale=%s:%s" % (fps, width, height or "-2"),
+               "-c:v", "mjpeg", "-q:v", str(quality), "-f", "mjpeg", "pipe:1"]
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         except OSError as exc:
