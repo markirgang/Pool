@@ -9,7 +9,6 @@
 
     const MODEL_STORAGE_KEY = 'SELECTED_AI_MODEL';
     const PROVIDER_STORAGE_KEY = 'SELECTED_AI_PROVIDER';
-    const DEFAULT_OPENCODE_KEY = atob('QVEuQWI4Uk42SU9GSDQ4UXNyWWNLLWEzUnp0OFc5RVZiZG0yTHJWRmlnQlE1Y0RySTBjaHc=');
 
     const SELECT_MODEL_IDS = [
         'selectModel', 'selectAiModel', 'selectAiModelSettings', 'aiModelSelect', 'settingModel'
@@ -22,7 +21,7 @@
     let cachedModelsData = null;
 
     function getSelectedModel() {
-        return localStorage.getItem(MODEL_STORAGE_KEY) || 'gemini-3.5-flash-lite';
+        return localStorage.getItem(MODEL_STORAGE_KEY) || 'gemini-4-argon';
     }
 
     function getSelectedProvider() {
@@ -73,12 +72,12 @@
         return {
             providers: ['opencode-go', 'google', 'ollama'],
             default_models: {
-                'opencode-go': 'gemini-3.5-flash-lite',
+                'opencode-go': 'gemini-4-argon',
                 'google': 'gemini-3.5-flash-lite',
                 'ollama': 'llama3.2'
             },
             models: {
-                'opencode-go': ['gemini-3.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview', 'gemini-flash-latest'],
+                'opencode-go': ['gemini-4-argon', 'gpt-5.6-luna', 'qwen3.8-flash', 'glm-5.3-flash', 'beam-free'],
                 'google': ['gemini-3.5-flash-lite', 'gemini-3.1-pro-preview', 'gemini-flash-latest', 'gemini-pro-latest'],
                 'ollama': ['llama3.2', 'mistral', 'qwen2.5', 'deepseek-r1', 'phi3', 'gemma2', 'llama3.1', 'llava']
             },
@@ -152,8 +151,18 @@
         const selects = findModelSelects();
         if (!selects.length) return;
 
-        const savedModel = getSelectedModel();
+        let savedModel = getSelectedModel();
         const savedProvider = getSelectedProvider();
+        // A browser may still have an old model saved that its provider no
+        // longer offers (e.g. gemini-3.5-flash-lite on OpenCode Go). Correct
+        // it to that provider's default so stale settings don't send an
+        // unsupported model on every request.
+        const providerList = (data.models && data.models[savedProvider]) || [];
+        if (savedModel && providerList.length && providerList.indexOf(savedModel) === -1) {
+            const defs = (data.default_models && data.default_models[savedProvider]) || providerList[0];
+            savedModel = providerList.indexOf(defs) !== -1 ? defs : providerList[0];
+            setSelected(savedProvider, savedModel);
+        }
         const compoundTarget = savedProvider + ':' + savedModel;
 
         selects.forEach(function (select) {
@@ -165,7 +174,7 @@
             (data.models['opencode-go'] || []).forEach(function (m) {
                 const opt = document.createElement('option');
                 opt.value = 'opencode-go:' + m;
-                opt.textContent = '⚡ ' + m + (m === 'gemini-3.5-flash-lite' ? ' (Default)' : '');
+                opt.textContent = '⚡ ' + m + (m === 'gemini-4-argon' ? ' (Default)' : '');
                 if (opt.value === compoundTarget || (savedProvider === 'opencode-go' && savedModel === m)) {
                     opt.selected = true;
                 }
@@ -235,9 +244,6 @@
                 payload.provider = provider;
                 payload.model = model;
 
-                if (provider === 'opencode-go' && !payload.api_key) {
-                    payload.api_key = DEFAULT_OPENCODE_KEY;
-                }
                 options.body = JSON.stringify(payload);
             } catch (e) {}
         }

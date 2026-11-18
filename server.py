@@ -1068,6 +1068,14 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
             model=assistant.get("stt_model") or voice_fast.DEFAULT_STT_MODEL, provider=provider)
     except Exception as exc:
         message = str(exc)
+        if re.search(r"429|RESOURCE_EXHAUSTED|quota|rate.?limit", message, re.I):
+            # The key is fine; the provider's allowance is temporarily used up.
+            AI_STATUS.update({"ok": False,
+                              "error": "The AI provider's request allowance is used up for now. Wait a few minutes and try again.",
+                              "at": time.time()})
+            LOG.warning("AI rate limited: %s", message[:160])
+            return {"text": "", "ignored": True, "state": _state(), "transcription": "",
+                    "ai_error": AI_STATUS["error"]}
         if re.search(r"401|403|UNAUTHENTICATED|PERMISSION_DENIED|API key|credits|disabled|deleted|invalid credential", message, re.I):
             # The key itself is rejected: the full model would fail the same way.
             AI_STATUS.update({"ok": False, "error": _ai_error_text(message), "at": time.time()})
@@ -1117,9 +1125,14 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
             and voice_fast.wants_vision(transcript):
         image = LOCAL_CAMERA.capture()
     prompt = transcript + "\n\n(Spoken request: reply in one or two short sentences that sound natural read aloud.)"
+    # Only gemini-4-argon accepts images on the OpenCode gateway; the
+    # faster text-only reply model would reject "Iggy, look..." requests.
+    reply_model = assistant.get("reply_model") or voice_fast.DEFAULT_REPLY_MODEL
+    if image is not None and provider == "opencode-go":
+        reply_model = "gemini-4-argon"
     result = _gemini_call(
         api_key, prompt, local=local, speak_local=speak_local, image_bytes=image,
-        provider=provider, model=assistant.get("reply_model") or voice_fast.DEFAULT_REPLY_MODEL,
+        provider=provider, model=reply_model,
         transcription=transcript)
     LOG.info("Voice (AI) heard in %.1fs, answered in %.1fs: %r", heard - started,
              time.time() - started, transcript)

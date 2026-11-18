@@ -32,7 +32,6 @@
   var voiceList = [];
   var cameraStream = null;
   var localCameraStatus = null;
-  var DEFAULT_OPENCODE_GO_KEY = atob("QVEuQWI4Uk42SU9GSDQ4UXNyWWNLLWEzUnp0OFc5RVZiZG0yTHJWRmlnQlE1Y0RySTBjaHc=");
 
   var DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
   var DAY_LABELS = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
@@ -873,7 +872,8 @@
     var label = "LISTENING", cls = "listening";
     chip.title = stat.ai_error || "";
     if (stat.ai_ok === false) {
-      label = "AI KEY PROBLEM"; cls = "off";
+      label = /allowance|rate limit/i.test(stat.ai_error || "") ? "AI RATE LIMITED" : "AI KEY PROBLEM";
+      cls = "off";
       if ($("voiceStatus") && !(recorder && recorder.state === "recording")) {
         $("voiceStatus").textContent = "Iggy can't understand speech right now: " + stat.ai_error;
       }

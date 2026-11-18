@@ -34,7 +34,7 @@ OPENCODE_BASE_URL = "https://opencode.ai/inference/go/google/"
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 DEFAULT_MODELS = {
-    "opencode-go": "gemini-3.5-flash-lite",
+    "opencode-go": "gemini-4-argon",
     "google": "gemini-3.5-flash-lite",
     "gemini": "gemini-3.5-flash-lite",
     "ollama": "llama3.2",
@@ -43,9 +43,10 @@ DEFAULT_MODELS = {
 AVAILABLE_MODELS = {
     "opencode-go": [
         "gemini-4-argon",
-        "gemini-3.8-flash",
-        "gemini-3.1-pro-preview",
-        "gemini-flash-latest",
+        "gpt-5.6-luna",
+        "qwen3.8-flash",
+        "glm-5.3-flash",
+        "beam-free",
     ],
     "google": [
         "gemini-3.8-flash",
@@ -95,7 +96,7 @@ def detect_provider(api_key: str = "", provider: str = "", model: str = "") -> t
         return "opencode-go", raw_model
 
     key = (api_key or "").strip()
-    if key.startswith("AQ."):
+    if key.startswith(("AQ.", "oc_sk_")):
         return "opencode-go", raw_model
     if key.startswith("AIza"):
         return "google", raw_model
@@ -285,29 +286,39 @@ def call_ai(
         response = None
 
         if chosen_provider == "opencode-go":
+            # OpenCode keys (oc_sk_/AQ.) work only through the OpenCode
+            # gateway. Go there first so we don't waste a request (and add
+            # latency) hitting Google directly with a key it can't use.
+            session_id = str(uuid.uuid4())
+            client = genai.Client(
+                api_key=effective_key,
+                http_options=types.HttpOptions(
+                    base_url=OPENCODE_BASE_URL,
+                    # The gateway serves the v1beta API; the genai library
+                    # defaults to /v1/, which returns 404 for every model.
+                    api_version="v1beta",
+                    headers={
+                        "Authorization": "Bearer " + effective_key,
+                        "x-opencode-session": session_id,
+                    },
+                ),
+            )
             try:
-                client = genai.Client(api_key=effective_key)
                 response = client.models.generate_content(
                     model=chosen_model,
                     contents=contents or ["Hello"],
                     config=config,
                 )
-            except Exception as direct_exc:
-                session_id = str(uuid.uuid4())
-                client = genai.Client(
-                    api_key=effective_key,
-                    http_options=types.HttpOptions(
-                        base_url=OPENCODE_BASE_URL,
-                        # The OpenCode Google gateway serves the v1beta API;
-                        # the genai library defaults to /v1/, which returned
-                        # 404 for every model.
-                        api_version="v1beta",
-                        headers={
-                            "Authorization": "Bearer " + effective_key,
-                            "x-opencode-session": session_id,
-                        },
-                    ),
-                )
+            except Exception as gateway_exc:
+                # An OpenCode key (oc_sk_/AQ.) can't be used on Google's API,
+                # so falling back there only turns a useful 429/400 into a
+                # misleading "API key not valid" error. Report the real one.
+                if effective_key.startswith(("oc_sk_", "AQ.")):
+                    raise
+                # A Google-style key with the provider forced to opencode-go
+                # may still work direct; keep that as a fallback.
+                LOG.warning("OpenCode gateway failed (%s); trying Google direct", gateway_exc)
+                client = genai.Client(api_key=effective_key)
                 response = client.models.generate_content(
                     model=chosen_model,
                     contents=contents or ["Hello"],

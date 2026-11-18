@@ -22,8 +22,8 @@ from typing import Any
 
 LOG = logging.getLogger("pool.voice")
 
-DEFAULT_STT_MODEL = "gemini-3.5-flash-lite"
-DEFAULT_REPLY_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_STT_MODEL = "gemini-4-argon"
+DEFAULT_REPLY_MODEL = "gpt-5.6-luna"
 
 # Don't mention the assistant's name here: the model then "hears" Iggy in
 # background noise and Iggy answers when nobody spoke to him.
