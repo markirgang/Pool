@@ -1068,7 +1068,7 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
             model=assistant.get("stt_model") or voice_fast.DEFAULT_STT_MODEL, provider=provider)
     except Exception as exc:
         message = str(exc)
-        if re.search(r"401|403|UNAUTHENTICATED|PERMISSION_DENIED|API key|credits|disabled|deleted", message, re.I):
+        if re.search(r"401|403|UNAUTHENTICATED|PERMISSION_DENIED|API key|credits|disabled|deleted|invalid credential", message, re.I):
             # The key itself is rejected: the full model would fail the same way.
             AI_STATUS.update({"ok": False, "error": _ai_error_text(message), "at": time.time()})
             LOG.warning("AI key rejected; voice requests can't be understood: %s", message[:160])

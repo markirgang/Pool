@@ -298,6 +298,10 @@ def call_ai(
                     api_key=effective_key,
                     http_options=types.HttpOptions(
                         base_url=OPENCODE_BASE_URL,
+                        # The OpenCode Google gateway serves the v1beta API;
+                        # the genai library defaults to /v1/, which returned
+                        # 404 for every model.
+                        api_version="v1beta",
                         headers={
                             "Authorization": "Bearer " + effective_key,
                             "x-opencode-session": session_id,
