@@ -172,9 +172,12 @@ def _opencode_key() -> str:
 
 
 def _gemini_key(payload: dict[str, Any]) -> str:
+    # The Pi's saved key is the app default; a key sent by a browser is used
+    # only when none is saved, so a stale key stored in a browser can't
+    # override it.
     return (
-        payload.get("api_key")
-        or CONFIG.get("gemini_api_key")
+        CONFIG.get("gemini_api_key")
+        or payload.get("api_key")
         or os.environ.get("OPENCODE_GO_API_KEY")
         or os.environ.get("OPENCODE_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
