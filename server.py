@@ -283,6 +283,19 @@ def _local_ip() -> str:
         return ""
 
 
+_LIST_CACHE: dict[str, tuple[float, Any]] = {}
+
+
+def _cached(key: str, producer, seconds: float = 10.0) -> Any:
+    """Device lists run several wpctl commands; reuse them for a few seconds."""
+    hit = _LIST_CACHE.get(key)
+    if hit and time.time() - hit[0] < seconds:
+        return hit[1]
+    value = producer()
+    _LIST_CACHE[key] = (time.time(), value)
+    return value
+
+
 def _public_config() -> dict[str, Any]:
     cfg = json.loads(json.dumps(CONFIG))
     cfg.pop("gemini_api_key", None)
@@ -652,9 +665,9 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         elif path in ("/api/models", "/api/ai/models"):
             self.send_json(ai_engine.get_available_models())
         elif path in ("/api/audio/inputs", "/api/audio/sources"):
-            self.send_json({"inputs": local_audio.list_local_audio_inputs()})
+            self.send_json({"inputs": _cached("inputs", local_audio.list_local_audio_inputs)})
         elif path in ("/api/audio/outputs", "/api/audio/sinks"):
-            self.send_json({"outputs": local_audio.list_local_audio_outputs()})
+            self.send_json({"outputs": _cached("outputs", local_audio.list_local_audio_outputs)})
         elif path.startswith("/api/tts/speak"):
             query_params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             text_to_speak = query_params.get("text", ["Hello!"])[0]

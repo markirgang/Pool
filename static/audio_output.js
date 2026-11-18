@@ -295,12 +295,18 @@
 
     let remoteCache = null;
 
+    let lastOwnMicOpen = 0;
+    let populateTimer = null;
+
     async function getRemoteDevices() {
         if (remoteCache) return remoteCache;
         if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
             return { inputs: [], outputs: [] };
         }
         try {
+            // Opening the mic to read device labels fires "devicechange";
+            // remember when, so that event doesn't trigger another refresh.
+            lastOwnMicOpen = Date.now();
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(function () {
                 return null;
             });
@@ -533,8 +539,15 @@
 
         if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
             navigator.mediaDevices.addEventListener('devicechange', function () {
-                remoteCache = null;
-                populate();
+                // Ignore the event our own mic probe causes (it looped forever,
+                // re-opening the mic and polling the Pi about once a second),
+                // and coalesce real plug/unplug events into one refresh.
+                if (Date.now() - lastOwnMicOpen < 3000) return;
+                clearTimeout(populateTimer);
+                populateTimer = setTimeout(function () {
+                    remoteCache = null;
+                    populate();
+                }, 1500);
             });
         }
 
