@@ -1281,7 +1281,7 @@
 
   async function saveServerKey() {
     var key = $("voiceKey").value.trim();
-    if (!key) { toast("Enter an OpenCode API key first", "error"); return; }
+    if (!key) { toast("Enter an API key first", "error"); return; }
     try {
       var result = await api("/api/settings", {
         method: "POST",
@@ -3634,11 +3634,11 @@
     if (selApiKeyType) {
       selApiKeyType.addEventListener("change", function (e) {
         if (e.target.value === "opencode-go") {
-          $("voiceKey").value = DEFAULT_OPENCODE_GO_KEY;
+          // Don't auto-insert the built-in default: that account is disabled,
+          // so pasting a fresh key is the only way this works. Keep whatever
+          // the user has typed and just select the right provider.
           $("aiProvider").value = "opencode-go";
-          localStorage.setItem("pool.geminiKey", DEFAULT_OPENCODE_GO_KEY);
           localStorage.setItem("pool.apiKeyType", "opencode-go");
-          toast("Inserted OpenCode Go API key", "good");
         } else if (e.target.value === "google") {
           var userKey = localStorage.getItem("pool.userGeminiKey") || "";
           $("voiceKey").value = userKey;

@@ -32,6 +32,18 @@
     function setSelected(provider, model) {
         if (provider) localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
         if (model) localStorage.setItem(MODEL_STORAGE_KEY, model);
+        // The Hardware tab also chooses a provider through the "API Key Type"
+        // dropdown and the hidden aiProvider field. Keep all three in sync so
+        // changing the model doesn't leave the app asking for the wrong key.
+        if (provider) {
+            var typeSel = document.getElementById('selectApiKeyType');
+            if (typeSel && (provider === 'google' || provider === 'opencode-go')) {
+                typeSel.value = provider;
+            }
+            var providerEl = document.getElementById('aiProvider');
+            if (providerEl) providerEl.value = provider;
+            localStorage.setItem('pool.apiKeyType', provider);
+        }
         updateHints();
     }
 
@@ -94,14 +106,16 @@
         }
 
         if (keyInput) {
+            // Update only the hint text. Never rewrite the key field here:
+            // auto-filling the (dead) default key and clearing it when a
+            // Google model was picked made "Save on server" see an empty
+            // field and report that no key had been entered.
             if (provider === 'ollama') {
                 keyInput.placeholder = 'Local Ollama Model (No API Key Required)';
             } else if (provider === 'opencode-go') {
-                keyInput.placeholder = 'OpenCode Go API Key (or leave default)';
-                if (!keyInput.value) keyInput.value = DEFAULT_OPENCODE_KEY;
+                keyInput.placeholder = 'OpenCode Go API Key (AQ....)';
             } else {
-                keyInput.placeholder = 'Enter Google Gemini API Key...';
-                if (keyInput.value === DEFAULT_OPENCODE_KEY) keyInput.value = '';
+                keyInput.placeholder = 'Google Gemini API Key (AIza...)';
             }
         }
     }
@@ -231,6 +245,24 @@
     };
 
     function init() {
+        // The Hardware tab's "API Key Type" dropdown is the other way to
+        // choose a provider; make the model dropdown follow it too.
+        var typeSel = document.getElementById('selectApiKeyType');
+        if (typeSel && typeSel.addEventListener) {
+            typeSel.addEventListener('change', function () {
+                var provider = typeSel.value;
+                var model = getSelectedModel();
+                // Pick a model that actually belongs to the new provider, so
+                // the two dropdowns never disagree about which key to use.
+                var lists = cachedModelsData && cachedModelsData.models;
+                if (lists && lists[provider] && lists[provider].indexOf(model) === -1) {
+                    var defs = (cachedModelsData && cachedModelsData.default_models) || {};
+                    model = defs[provider] || lists[provider][0];
+                }
+                setSelected(provider, model);
+                populateSelectors();
+            });
+        }
         populateSelectors();
         [400, 1200, 2500].forEach(function (d) {
             setTimeout(populateSelectors, d);

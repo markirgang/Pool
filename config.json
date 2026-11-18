@@ -146,5 +146,8 @@
       "device": ""
     }
   },
-  "custom_devices": []
+  "custom_devices": [],
+  "ai": {
+    "provider": "opencode-go"
+  }
 }

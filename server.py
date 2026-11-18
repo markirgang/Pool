@@ -190,8 +190,11 @@ def _key_provider(key: str) -> str:
     token = (key or "").strip()
     if not token:
         return ""
-    if token.startswith(("AIza", "AQ.")):
+    if token.startswith("AIza"):
         return "google"
+    # AQ. keys belong to the OpenCode Go account and go through its gateway,
+    # not straight to Google. Sending one to Google gets "service account
+    # deleted/disabled" instead of a useful error.
     return "opencode-go"
 
 
