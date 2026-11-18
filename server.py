@@ -686,7 +686,9 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 "inputs": [], "outputs": [], "voices": [], "local": None,
             })
         elif path == "/api/audio/status":
-            self.send_json(LOCAL_AUDIO.status() if LOCAL_AUDIO else {})
+            status = dict(LOCAL_AUDIO.status()) if LOCAL_AUDIO else {}
+            status["ai_ok"], status["ai_error"] = AI_STATUS["ok"], AI_STATUS["error"]
+            self.send_json(status)
         elif path == "/api/camera/devices":
             self.send_json({
                 "cameras": LOCAL_CAMERA.devices() if LOCAL_CAMERA else [],
@@ -1009,6 +1011,15 @@ def _has_wake_word(transcription: Any) -> bool:
     return any(w.strip("'").removesuffix("'s") in WAKE_WORDS for w in words)
 
 
+AI_STATUS: dict[str, Any] = {"ok": True, "error": "", "at": 0.0}
+
+
+def _ai_error_text(message: str) -> str:
+    if re.search(r"credits|402", message, re.I):
+        return "The AI account is out of credits. Top it up or add a new key in the Hardware tab."
+    return "The AI key was rejected (disabled or deleted). Add a new key in the Hardware tab."
+
+
 def _prewarm_voice_async() -> None:
     """Pre-generate speech for the instant-command replies so they play at once."""
     def run() -> None:
@@ -1050,6 +1061,13 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
             api_key, audio, mime_type,
             model=assistant.get("stt_model") or voice_fast.DEFAULT_STT_MODEL, provider=provider)
     except Exception as exc:
+        message = str(exc)
+        if re.search(r"401|403|UNAUTHENTICATED|PERMISSION_DENIED|API key|credits|disabled|deleted", message, re.I):
+            # The key itself is rejected: the full model would fail the same way.
+            AI_STATUS.update({"ok": False, "error": _ai_error_text(message), "at": time.time()})
+            LOG.warning("AI key rejected; voice requests can't be understood: %s", message[:160])
+            return {"text": "", "ignored": True, "state": _state(), "transcription": "",
+                    "ai_error": AI_STATUS["error"]}
         # Fall back to the original single multimodal call.
         LOG.warning("Fast transcription failed (%s); using the full voice model", exc)
         image = None
@@ -1059,6 +1077,7 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
         return _gemini_call(api_key, "", audio, mime_type, local=local, speak_local=speak_local,
                             image_bytes=image, provider=provider)
     heard = time.time()
+    AI_STATUS.update({"ok": True, "error": "", "at": time.time()})
     if not transcript:
         return {"text": "", "ignored": True, "state": _state(), "transcription": ""}
     if local and not _has_wake_word(transcript):

@@ -871,7 +871,13 @@
     var chip = $("micStateChip");
     if (!chip) return;
     var label = "LISTENING", cls = "listening";
-    if (!stat.mic_running || /stream ended|open failed/i.test(stat.last_error || "")) {
+    chip.title = stat.ai_error || "";
+    if (stat.ai_ok === false) {
+      label = "AI KEY PROBLEM"; cls = "off";
+      if ($("voiceStatus") && !(recorder && recorder.state === "recording")) {
+        $("voiceStatus").textContent = "Iggy can't understand speech right now: " + stat.ai_error;
+      }
+    } else if (!stat.mic_running || /stream ended|open failed/i.test(stat.last_error || "")) {
       label = "MIC OFF"; cls = "off";
     } else if (stat.in_speech) {
       label = "HEARING YOU"; cls = "hearing";
