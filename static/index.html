@@ -1352,7 +1352,7 @@
               <a href="#man-sec5" class="toc-chip">5. Pump Schedules</a>
               <a href="#man-sec6" class="toc-chip">6. Voice Assistant &amp; Iggy</a>
               <a href="#man-sec7" class="toc-chip">7. Alexa Smart Home v3</a>
-              <a href="#man-sec8" class="toc-chip">8. Raspberry Pi Setup</a>
+              <a href="#man-sec8" class="toc-chip">8. Raspberry Pi Setup &amp; Touchscreen</a>
               <a href="#man-sec9" class="toc-chip">9. Protocol &amp; REST APIs</a>
               <a href="#man-sec10" class="toc-chip">10. Diagnostic Matrix</a>
               <a href="#man-sec11" class="toc-chip">11. Logic Visualization &amp; Simulation</a>
@@ -2024,8 +2024,8 @@ def lambda_handler(event, context):
           <div class="manual-sec-head">
             <span class="manual-sec-num">08</span>
             <div>
-              <h3>Raspberry Pi Setup, Security &amp; Service Commissioning</h3>
-              <p class="muted">Complete deployment procedure from clean OS installation to background daemon.</p>
+              <h3>Raspberry Pi Setup, Security, Service &amp; Touchscreen Kiosk</h3>
+              <p class="muted">Complete deployment procedure from clean OS installation to background daemon and touchscreen.</p>
             </div>
           </div>
           <div class="manual-body-text">
@@ -2069,6 +2069,25 @@ loginctl enable-linger $USER</code></pre>
             <pre class="manual-code"><code>curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
 sudo dpkg -i cloudflared.deb
 cloudflared tunnel route dns shobots pool.shobots.party</code></pre>
+
+            <h4 style="margin-top: 14px;">Step 5: Touchscreen Kiosk (USB/HDMI Touchscreen)</h4>
+            <p>The Pi can boot straight into the pool app full-screen on a USB/HDMI touchscreen (tested layout: 1920&times;1200). Connect the screen's <strong>HDMI</strong> cable for the picture and its <strong>USB</strong> cable for touch. With only one screen attached, touch lines up automatically.</p>
+            <ul>
+              <li>The screen signs itself in as <strong>guest</strong>: it can control the pool, but the camera and admin settings stay locked. An admin can still log in from the screen using the on-screen keyboard.</li>
+              <li>The screen sign-in only works on the Pi itself. The same link opened through the public Cloudflare address is refused.</li>
+              <li>If the browser crashes or is closed, it reopens a few seconds later. Pinch-zoom, swipe back/forward and the right-click menu are blocked, and switches and buttons are enlarged for fingers.</li>
+            </ul>
+            <p><strong>Turn kiosk mode on</strong>, starting from the next boot. The first time, this creates the screen's sign-in; restart the pool server when it says so:</p>
+            <pre class="manual-code"><code>cd ~/Pool
+kiosk/kiosk-mode.sh on
+systemctl --user restart pool.service</code></pre>
+            <p><strong>Switch the screen over right now</strong> (or double-tap the <em>Pool Touchscreen</em> icon on the desktop):</p>
+            <pre class="manual-code"><code>kiosk/kiosk-mode.sh on now</code></pre>
+            <p><strong>Get back to the desktop:</strong> plug in a keyboard, press <strong>Ctrl+Alt+T</strong> to open a terminal, then run the command below. The normal desktop returns straight away and at every boot.</p>
+            <pre class="manual-code"><code>~/Pool/kiosk/kiosk-mode.sh off</code></pre>
+            <p><strong>Check which mode is set:</strong></p>
+            <pre class="manual-code"><code>~/Pool/kiosk/kiosk-mode.sh status</code></pre>
+            <p><strong>Screen goes dark when idle?</strong> Turn off <em>Raspberry Pi Configuration &rarr; Display &rarr; Screen Blanking</em>.</p>
           </div>
         </section>
 

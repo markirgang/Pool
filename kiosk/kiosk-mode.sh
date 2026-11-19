@@ -31,6 +31,28 @@ EOF
 
 case "${1:-status}" in
   on)
+    # Give the screen its own sign-in (guest by default) if it has none yet.
+    python3 - "$KIOSK_DIR/../config.local.json" <<'PY'
+import json, os, secrets, sys
+path = sys.argv[1]
+try:
+    with open(path) as fh:
+        data = json.load(fh)
+except (OSError, ValueError):
+    data = {}
+auth = data.setdefault("auth", {})
+if not auth.get("kiosk_token"):
+    auth["kiosk_token"] = secrets.token_urlsafe(32)
+    auth.setdefault("kiosk_user", "guest")
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with open(fd, "w") as fh:
+        json.dump(data, fh, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+    print("Created a touchscreen sign-in; restart the pool server to use it:")
+    print("  systemctl --user restart pool.service")
+PY
     mkdir -p "$(dirname "$AUTOSTART")"
     if [ -f "$AUTOSTART" ] && ! is_on; then
       cp "$AUTOSTART" "$AUTOSTART.before-kiosk"
