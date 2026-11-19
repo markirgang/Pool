@@ -121,6 +121,16 @@ def session_user(config: dict[str, Any], token: str | None) -> str | None:
     return user if user in users(config) else None
 
 
+def kiosk_user(config: dict[str, Any], token: str | None) -> str | None:
+    """User the Pi's own touchscreen signs in as, if ``token`` matches."""
+    auth = _auth_cfg(config)
+    expected = str(auth.get("kiosk_token") or "")
+    if not token or not expected or not hmac.compare_digest(token, expected):
+        return None
+    user = str(auth.get("kiosk_user") or "guest")
+    return user if user in users(config) else None
+
+
 def locked_out(client: str) -> bool:
     now = time.time()
     with _failures_lock:

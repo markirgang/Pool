@@ -67,6 +67,8 @@ ADMIN_GET_PATHS = frozenset({
     "/api/camera/snapshot", "/api/camera/frame", "/api/camera/stream",
 })
 ADMIN_POST_PATHS = frozenset({"/api/camera/look"})
+# Long-lived sign-in for the Pi's own touchscreen; see auth.kiosk_user.
+KIOSK_COOKIE = "pool_kiosk"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -501,7 +503,32 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         except http.cookies.CookieError:
             return None
         morsel = cookies.get(auth.COOKIE_NAME)
-        return auth.session_user(CONFIG, morsel.value if morsel else None)
+        user = auth.session_user(CONFIG, morsel.value if morsel else None)
+        if user or not self.is_local_screen():
+            return user
+        kiosk = cookies.get(KIOSK_COOKIE)
+        return auth.kiosk_user(CONFIG, kiosk.value if kiosk else None)
+
+    def is_local_screen(self) -> bool:
+        """Browser running on the Pi itself, not a visitor through the tunnel."""
+        return (self.client_address[0] in ("127.0.0.1", "::1")
+                and not self.headers.get("CF-Connecting-IP")
+                and not self.headers.get("CF-Ray")
+                and not self.headers.get("X-Forwarded-For"))
+
+    def handle_kiosk(self) -> None:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        token = query.get("token", [""])[0]
+        if not self.is_local_screen() or not auth.kiosk_user(CONFIG, token):
+            self.send_json({"error": "Kiosk sign-in only works on the Pi's own screen"},
+                           status=403)
+            return
+        self.send_response(302)
+        self.send_header("Set-Cookie", "%s=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%d"
+                         % (KIOSK_COOKIE, token, 10 * 365 * 24 * 3600))
+        self.send_header("Location", "/?kiosk=1")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def require_login(self) -> bool:
         if self.session_user():
@@ -589,6 +616,9 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         if path in LOGIN_GET_PATHS and not self.require_login():
             return
         if path in ADMIN_GET_PATHS and not self.require_admin():
+            return
+        if path == "/kiosk":
+            self.handle_kiosk()
             return
         if path == "/api/auth":
             user = self.session_user()
