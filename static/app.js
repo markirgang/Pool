@@ -4062,6 +4062,12 @@
   }
 
   function init() {
+    if (/[?&]kiosk=1\b/.test(window.location.search)) {
+      document.body.classList.add("kiosk");
+      document.addEventListener("contextmenu", function (e) {
+        if (!e.target.closest("input, textarea")) e.preventDefault();
+      });
+    }
     bindAuth();
     applyAuth({ logged_in: false });
     checkAuth();

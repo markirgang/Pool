@@ -2491,3 +2491,22 @@ body.live-mode #poolVideoCard { display: none !important; }
 .live-badge .status-dot { background: #ff4d4d; box-shadow: 0 0 8px #ff4d4d; }
 body.logged-out .live-badge, body.no-camera .live-badge { display: none; }
 .live-locked { font-size: 1rem; }
+
+/* Pi touchscreen kiosk (opened with ?kiosk=1) */
+body.kiosk {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+body.kiosk input, body.kiosk textarea, body.kiosk select { -webkit-user-select: text; user-select: text; }
+body.kiosk .btn, body.kiosk .tab, body.kiosk .icon-btn, body.kiosk select { min-height: 48px; }
+body.kiosk .switch { width: 64px; height: 36px; }
+body.kiosk .switch .slider::before { width: 28px; height: 28px; }
+body.kiosk .switch input:checked + .slider::before { transform: translateX(28px); }
+body.kiosk .switch.mini { width: 52px; height: 30px; }
+body.kiosk .switch.mini .slider::before { width: 22px; height: 22px; }
+body.kiosk .switch.mini input:checked + .slider::before { transform: translateX(22px); }
+body.kiosk .btn:hover, body.kiosk .mode-btn:hover, body.kiosk .scene:hover { transform: none; }
+body.kiosk .btn:active, body.kiosk .mode-btn:active, body.kiosk .scene:active { transform: scale(0.97); }
