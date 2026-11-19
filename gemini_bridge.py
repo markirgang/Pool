@@ -94,6 +94,11 @@ _BASE_FACTS = (
     "Spa Fountain E/W. There is also a spa air blower on the Blower circuit. The "
     "default color for the pool lights is steady blue. Firebasket ignition and "
     "propane are automatic when the IntelliCenter supplies 12 VAC to the burner. "
+    "Relay AUX 5 (Burners) runs both firebasket burners together; the burners are a "
+    "separate feature and only light when asked for (spillway 'flame') or when all "
+    "water features are turned on. AUX 6 (Spa Spillway) runs both spa spillway "
+    "lights and AUX 7 (Pool Spillway) runs both pool spillway lights; those lights "
+    "follow the spillways automatically. "
     "There are color LED pool and spa lights, and a heater. IntelliCenter automatically "
     "moves the 3-way drain and return valves in pool/spa mode."
 )
@@ -172,7 +177,7 @@ class GeminiPoolBridge:
                 ),
                 types.FunctionDeclaration(
                     name="pool_set_firebasket",
-                    description="Turn one firepit (east or west) on/off, or control its individual pool spillway, spa spillway, or both.",
+                    description="Control one firepit (east or west): its pool spillway, spa spillway, both spillways, or 'flame' for the burners. Burners are shared by both firepits and only change when 'flame' is chosen.",
                     parameters=types.Schema(
                         type=types.Type.OBJECT,
                         properties={
@@ -419,7 +424,6 @@ class GeminiPoolBridge:
             else:
                 payload["water"] = val
                 payload["spa_water"] = val
-                payload["on"] = val
         elif action == "set_all_features":
             payload = {"on": bool(args.get("on"))}
         elif action == "set_blower":

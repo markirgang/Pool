@@ -311,9 +311,10 @@ def _handle_power(endpoint: str, on: bool, controller: Any) -> dict:
                 return controller.command("set_firebasket", {"id": basket, "water": on})
             if parts[2] == "spa":
                 return controller.command("set_firebasket", {"id": basket, "spa_water": on})
-        return controller.command("set_firebasket", {
-            "id": basket, "on": on,
-        })
+        payload = {"id": basket, "on": on}
+        if not on:
+            payload.update({"water": False, "spa_water": False})
+        return controller.command("set_firebasket", payload)
     if endpoint == "spa_blower":
         return controller.command("set_blower", {"on": on})
     if endpoint.endswith("_light"):

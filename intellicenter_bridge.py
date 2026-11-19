@@ -111,6 +111,7 @@ class IntelliCenterBridge:
         self._inventory: dict[str, Any] = self._empty_inventory()
         self._resolved: dict[str, Any] = self._resolve_mappings(self._inventory)
         self._started = False
+        self.updated = threading.Event()
 
     @property
     def ic_config(self) -> dict[str, Any]:
@@ -572,6 +573,7 @@ class IntelliCenterBridge:
 
         def on_updated(ctrl, updates):
             self._publish_from_controller(ctrl)
+            self.updated.set()
 
         handler.on_started = on_started
         handler.on_reconnected = on_reconnected

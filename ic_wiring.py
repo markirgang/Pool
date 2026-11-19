@@ -61,7 +61,9 @@ def _app_roles(resolved: dict[str, Any]) -> dict[str, list[str]]:
         for field, objnam in (spec or {}).items():
             add(objnam, "%s floor jet%s" % (jet.upper(), "" if field == "water" else " " + field))
     for basket, spec in (resolved.get("firebaskets") or {}).items():
-        labels = {"water": "pool spillway", "spa_water": "spa spillway"}
+        labels = {"water": "pool spillway", "spa_water": "spa spillway", "burner": "burner",
+                  "spillway_pool_led": "pool spillway light",
+                  "spillway_spa_led": "spa spillway light"}
         for field, objnam in (spec or {}).items():
             add(objnam, "%s firepit - %s" % (basket.capitalize(), labels.get(field, field)))
     add((resolved.get("blower") or {}).get("circuit"), "Spa blower")

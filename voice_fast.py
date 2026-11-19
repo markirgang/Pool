@@ -190,6 +190,10 @@ def match_command(transcript: str, state: dict[str, Any]) -> tuple[str | None, d
         if not named and re.search(r"\b(all|the|floor|deck)\b", text):
             return ("set_all_jets", {"on": on}, "The floor jets are %s." % ("on" if on else "off"))
 
+    if re.search(r"\b(burners?|flames?|fires?)\b", text) and on is not None \
+            and not re.search(r"\b(fountains?|spillways?)\b", text):
+        return ("set_firebasket", {"id": "east", "on": on},
+                "The burners are %s." % ("on" if on else "off"))
     if re.search(r"\b(fountains?|fire ?pits?|fire ?baskets?|spillways?)\b", text) \
             and on is not None and not re.search(r"\b(east|west|pool|spa)\b", text):
         return ("set_all_firebaskets", {"on": on}, "The firepit fountains are %s." % ("on" if on else "off"))

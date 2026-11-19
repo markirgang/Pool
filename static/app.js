@@ -1764,9 +1764,13 @@
         { path: "firebaskets.east.burner", label: "East Firepit Burner", hint: "East firepit animated flame & ember", type: "CIRCUIT" },
         { path: "firebaskets.east.water", label: "East Firepit Pool Spillway", hint: "East spillway flowing into pool", type: "CIRCUIT" },
         { path: "firebaskets.east.spa_water", label: "East Firepit Spa Spillway", hint: "East spillway flowing into spa", type: "CIRCUIT" },
+        { path: "firebaskets.east.spillway_pool_led", label: "East Pool Spillway Light", hint: "Light on the east pool spillway", type: "CIRCUIT" },
+        { path: "firebaskets.east.spillway_spa_led", label: "East Spa Spillway Light", hint: "Light on the east spa spillway", type: "CIRCUIT" },
         { path: "firebaskets.west.burner", label: "West Firepit Burner", hint: "West firepit animated flame & ember", type: "CIRCUIT" },
         { path: "firebaskets.west.water", label: "West Firepit Pool Spillway", hint: "West spillway flowing into pool", type: "CIRCUIT" },
-        { path: "firebaskets.west.spa_water", label: "West Firepit Spa Spillway", hint: "West spillway flowing into spa", type: "CIRCUIT" }
+        { path: "firebaskets.west.spa_water", label: "West Firepit Spa Spillway", hint: "West spillway flowing into spa", type: "CIRCUIT" },
+        { path: "firebaskets.west.spillway_pool_led", label: "West Pool Spillway Light", hint: "Light on the west pool spillway", type: "CIRCUIT" },
+        { path: "firebaskets.west.spillway_spa_led", label: "West Spa Spillway Light", hint: "Light on the west spa spillway", type: "CIRCUIT" }
       ]
     },
     {

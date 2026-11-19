@@ -61,6 +61,7 @@ class PoolController:
         self._last_message_at = 0.0
         self._stop = False
         self._thread: threading.Thread | None = None
+        self._led_sent: dict[str, tuple[bool, float]] = {}
 
         defaults = config.get("defaults", {})
         self._default_rpm = int(defaults.get("main_rpm", 2200))
@@ -113,6 +114,8 @@ class PoolController:
         self._thread = threading.Thread(target=self._tick_loop, name="pool-schedule",
                                         daemon=True)
         self._thread.start()
+        threading.Thread(target=self._spillway_led_loop, name="spillway-leds",
+                         daemon=True).start()
         # Scan IntelliCenter and apply required adjustments on server startup
         try:
             self.scan_and_adjust(reason="server_startup")
@@ -129,6 +132,46 @@ class PoolController:
             except Exception:
                 LOG.exception("Pool controller tick failed")
             time.sleep(10)
+
+    def _spillway_led_loop(self) -> None:
+        while not self._stop:
+            self.bridge.updated.wait(timeout=10)
+            self.bridge.updated.clear()
+            try:
+                self.sync_spillway_leds()
+            except Exception:
+                LOG.exception("Spillway LED sync failed")
+
+    def sync_spillway_leds(self) -> None:
+        """Keep the spillway LED relays following the spillway water circuits.
+
+        Works from live panel status, so circuits switched at the panel, by
+        panel schedules, or from any other app are followed too.
+        """
+        if not self.bridge.connected:
+            return
+        resolved = self.bridge.resolved()
+        status = {o["objnam"]: o.get("status")
+                  for o in self.bridge.inventory().get("circuits", [])}
+        wanted: dict[str, bool] = {}
+        for spec in (resolved.get("firebaskets") or {}).values():
+            for led, water in (("spillway_pool_led", "water"),
+                               ("spillway_spa_led", "spa_water")):
+                if spec.get(led):
+                    wanted[spec[led]] = (wanted.get(spec[led], False)
+                                         or status.get(spec.get(water)) == "ON")
+        now = time.time()
+        changes: dict[str, dict[str, Any]] = {}
+        for objnam, on in wanted.items():
+            if objnam not in status or (status[objnam] == "ON") == on:
+                continue
+            last = self._led_sent.get(objnam)
+            if last and last[0] == on and now - last[1] < 5:
+                continue
+            self._led_sent[objnam] = (on, now)
+            self._power(changes, objnam, on)
+        if changes:
+            self._send(changes, "spillway_led_follow")
 
     def tick(self) -> None:
         if self.bridge.connected and not self._startup_applied:
@@ -235,7 +278,8 @@ class PoolController:
 
             # C. Water Features Pump Adjustment
             jets_on = any(j.get("on") for j in self.state_data["deck_jets"].values())
-            baskets_on = any(b.get("on") for b in self.state_data["firebaskets"].values())
+            baskets_on = any(b.get("water") or b.get("spa_water")
+                             for b in self.state_data["firebaskets"].values())
             if not (jets_on or baskets_on):
                 feat_res = self.set_pump("features", on=False, reason=f"{reason}_features_off")
                 adjustments.append({
@@ -644,11 +688,6 @@ class PoolController:
                     self.state_data["firebaskets"][basket]["spa_water"] = bool(on)
                 if objnam == spec.get("burner") and on is not None:
                     self.state_data["firebaskets"][basket]["on"] = bool(on)
-                self.state_data["firebaskets"][basket]["on"] = bool(
-                    self.state_data["firebaskets"][basket].get("on") or
-                    self.state_data["firebaskets"][basket].get("water") or
-                    self.state_data["firebaskets"][basket].get("spa_water")
-                )
 
             # Ensure features pump runs if water features are on
             if any(j["on"] for j in self.state_data["deck_jets"].values()) or any(
@@ -798,7 +837,7 @@ class PoolController:
 
     def _ensure_features_pump(self, changes: dict[str, dict[str, Any]]) -> None:
         any_on = any(j["on"] for j in self.state_data["deck_jets"].values()) or any(
-            f["on"] for f in self.state_data["firebaskets"].values()
+            f.get("water") or f.get("spa_water") for f in self.state_data["firebaskets"].values()
         )
         pump = self.state_data["pumps"]["features"]
         pump["on"] = any_on
@@ -808,6 +847,35 @@ class PoolController:
             self._power(changes, target, any_on)
         program = resolved.get("pump_programs", {}).get("features")
         self._speed(changes, program, pump["rpm"])
+
+    def _firebasket_outputs(self, changes: dict[str, dict[str, Any]],
+                            resolved: dict[str, Any]) -> None:
+        """Burner and spillway LED relays, which may be shared by both baskets.
+
+        A shared relay stays on while any basket using it needs it.
+        """
+        wanted: dict[str, bool] = {}
+        for basket, spec in (resolved.get("firebaskets") or {}).items():
+            state = self.state_data["firebaskets"].get(basket, {})
+            for field, needed in (("burner", state.get("on")),
+                                  ("spillway_pool_led", state.get("water")),
+                                  ("spillway_spa_led", state.get("spa_water"))):
+                objnam = spec.get(field)
+                if objnam:
+                    wanted[objnam] = wanted.get(objnam, False) or bool(needed)
+        for basket in self.state_data["firebaskets"].values():
+            basket["spillway_pool_led"] = bool(basket.get("water"))
+            basket["spillway_spa_led"] = bool(basket.get("spa_water"))
+        for objnam, on in wanted.items():
+            self._power(changes, objnam, on)
+
+    def _is_color_light(self, objnam: str) -> bool:
+        for obj in self.bridge.inventory().get("objects", []):
+            if obj.get("objnam") == objnam:
+                return str(obj.get("subtype") or "").upper() in (
+                    "INTELLI", "GLOW", "GLOWT", "MAGIC2", "CLRCASC", "SAML",
+                    "SAMMOD", "PHOTON", "COLORW")
+        return False
 
     # ------------------------------------------------------------------
     # Water features
@@ -862,27 +930,30 @@ class PoolController:
                 state["water"] = bool(water)
             if spa_water is not None:
                 state["spa_water"] = bool(spa_water)
-            if on is not None:
-                state["on"] = bool(on)
-                if not on and water is None and spa_water is None:
-                    state["water"] = False
-                    state["spa_water"] = False
-            if state["water"] or state["spa_water"]:
-                state["on"] = True
-            elif on is None and not state.get("on"):
-                state["on"] = False
-
             resolved = self.bridge.resolved()
-            spec = resolved.get("firebaskets", {}).get(basket, {})
+            specs = resolved.get("firebaskets", {})
+            spec = specs.get(basket, {})
+            if on is not None:
+                # Burners are separate from the spillways; baskets that share
+                # a burner relay light and go out together.
+                for other, other_spec in specs.items():
+                    if other == basket or (spec.get("burner")
+                                           and other_spec.get("burner") == spec.get("burner")):
+                        self.state_data["firebaskets"][other]["on"] = bool(on)
+                state["on"] = bool(on)
+
             changes: dict[str, dict[str, Any]] = {}
             if spec.get("water"):
                 self._power(changes, spec["water"], state["water"])
             if spec.get("spa_water"):
                 self._power(changes, spec["spa_water"], state["spa_water"])
+            self._firebasket_outputs(changes, resolved)
             self._ensure_features_pump(changes)
 
         ok, msg = self._send(changes, "firebasket_%s" % basket)
         desc = []
+        if state["on"]:
+            desc.append("burner")
         if state["water"]:
             desc.append("pool spillway")
         if state["spa_water"]:
@@ -916,6 +987,7 @@ class PoolController:
                 for field in ("water", "spa_water"):
                     if spec.get(field):
                         self._power(changes, spec[field], on)
+            self._firebasket_outputs(changes, resolved)
             self.state_data["blower"]["on"] = on
             blower = (resolved.get("blower") or {}).get("circuit")
             if blower:
@@ -948,10 +1020,10 @@ class PoolController:
             changes: dict[str, dict[str, Any]] = {}
             for basket, spec in resolved.get("firebaskets", {}).items():
                 state = self.state_data["firebaskets"].get(basket, {})
-                if not state.get("on"):
-                    continue
-                for field in ("spillway_pool_led", "spillway_spa_led"):
-                    if spec.get(field):
+                for field, flowing in (("spillway_pool_led", state.get("water")),
+                                       ("spillway_spa_led", state.get("spa_water"))):
+                    # Plain relays (e.g. AUX 6/7) are on/off only; no color.
+                    if flowing and spec.get(field) and self._is_color_light(spec[field]):
                         self._power_led(changes, spec[field], True, effect)
         name = LIGHT_EFFECTS.get(effect, effect)
         ok, msg = self._send(changes, "spillway_color")
@@ -1267,7 +1339,7 @@ class PoolController:
                     state["spa_water"] = on(spec["spa_water"])
                 state["spillway_pool_led"] = state["water"]
                 state["spillway_spa_led"] = state["spa_water"]
-                state["on"] = state["water"] or state["spa_water"]
+                state["on"] = bool(spec.get("burner") and on(spec["burner"]))
 
             blower = (resolved.get("blower") or {}).get("circuit")
             if blower:
@@ -1345,7 +1417,8 @@ class PoolController:
                     pass
 
             if any(j["on"] for j in self.state_data["deck_jets"].values()) or any(
-                    f["on"] for f in self.state_data["firebaskets"].values()):
+                    f.get("water") or f.get("spa_water")
+                    for f in self.state_data["firebaskets"].values()):
                 self.state_data["pumps"]["features"]["on"] = True
 
     # ------------------------------------------------------------------

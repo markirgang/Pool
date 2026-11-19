@@ -1047,7 +1047,8 @@ def _apply_voice_action(action: str | None, payload: dict[str, Any]) -> dict[str
         results = [_apply_action("set_deck_jet", {"id": jet, "on": payload.get("on")})
                    for jet in ("ne", "nw", "se", "sw")]
     elif action == "set_all_firebaskets":
-        results = [_apply_action("set_firebasket", {"id": basket, "on": payload.get("on")})
+        on = payload.get("on")
+        results = [_apply_action("set_firebasket", {"id": basket, "water": on, "spa_water": on})
                    for basket in ("east", "west")]
     else:
         return _apply_action(action, payload)
