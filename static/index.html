@@ -391,6 +391,19 @@
             <button class="btn primary small" id="saveSchedule">Save Schedule</button>
           </div>
         </section>
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Daily Floor-Jet Exercise</h2>
+              <p class="muted">Every day at sundown, all four floor jets run for 10 minutes so the features pump doesn&rsquo;t sit with stale water. Jets that are already on are left on.</p>
+            </div>
+            <label class="switch inline">
+              <input type="checkbox" id="jetExerciseEnabled">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="schedule-next" id="jetExerciseNext">Next: --</div>
+        </section>
       </div>
 
       <!-- VOICE -->
@@ -1821,6 +1834,18 @@
                 <li><strong>Save &amp; Apply:</strong> Click <strong>Save Schedule</strong> &mdash; the background scheduler immediately activates the new timetable.</li>
               </ol>
             </div>
+
+            <div class="manual-callout good" style="margin-top: 16px;">
+              <h4 style="margin: 0 0 10px 0; font-size: 0.95rem;">🌅 Daily Floor-Jet Exercise (Features Pump)</h4>
+              <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; line-height: 1.6;">
+                <li>Every day at sundown, all four floor jets run for <strong>10 minutes</strong> so water doesn&rsquo;t sit stale in the features pump and its lines. The features pump starts and stops with them.</li>
+                <li>Sundown is worked out from the pool&rsquo;s location (as set on the IntelliCenter), so the start time follows the season (about 5:30 PM in winter, 8:15 PM in midsummer).</li>
+                <li>Jets that are already on at sundown are left on. If the Pi restarts during the 10 minutes, the jets still turn off on time.</li>
+                <li>If the Pi or panel is offline for the whole 10 minutes after sundown, that day&rsquo;s run is skipped.</li>
+                <li>Turn it on or off with the <strong>Daily Floor-Jet Exercise</strong> switch on the <strong>Schedule</strong> tab, which also shows the next start time. The length and which jets run are under <code>schedule.jet_exercise</code> in <code>config.json</code>.</li>
+                <li>The pool&rsquo;s coordinates are kept in <code>config.local.json</code> (not on GitHub). On a new install, add <code>"location": {"latitude": ..., "longitude": ...}</code> there, using the latitude and longitude shown in the IntelliCenter&rsquo;s location settings (west longitudes are negative).</li>
+              </ul>
+            </div>
           </div>
         </section>
 
@@ -2907,7 +2932,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=29"></script>
+  <script src="app.js?v=30"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>

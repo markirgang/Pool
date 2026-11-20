@@ -107,6 +107,10 @@ def save_config(config: dict[str, Any]) -> None:
     login = public.pop("auth", None)
     if login:
         local["auth"] = login
+    location = public.pop("location", None)
+    if location:
+        # Home coordinates stay out of the git-tracked config.json.
+        local["location"] = location
     ic = public.get("intellicenter")
     if isinstance(ic, dict) and ic.get("host"):
         # Site-specific panel address stays out of the git-tracked config.json.

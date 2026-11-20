@@ -90,6 +90,16 @@
   "schedule": {
     "enabled": true,
     "apply_at_startup": false,
+    "jet_exercise": {
+      "enabled": true,
+      "minutes": 10,
+      "jets": [
+        "ne",
+        "nw",
+        "se",
+        "sw"
+      ]
+    },
     "runs": [
       {
         "name": "Main VSR daytime",

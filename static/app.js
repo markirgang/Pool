@@ -484,6 +484,14 @@
       ? ("Next run: " + (schedule.next || "none scheduled") +
         (schedule.active ? " \u00B7 RUNNING: " + schedule.active_run : ""))
       : "Schedule disabled";
+    var ex = schedule.jet_exercise || {};
+    if ($("jetExerciseEnabled")) $("jetExerciseEnabled").checked = !!ex.enabled;
+    if ($("jetExerciseNext")) {
+      $("jetExerciseNext").textContent = !ex.enabled ? "Off"
+        : ex.running ? "RUNNING now (" + ex.minutes + " minutes)"
+        : !ex.location_set ? "Waiting for the pool's location to work out sundown"
+        : "Next: sundown " + (ex.next || "--") + " for " + ex.minutes + " minutes";
+    }
     var key = JSON.stringify(schedule.runs || []);
     if (!scheduleDirty && key !== scheduleKey) {
       scheduleKey = key;
@@ -3688,6 +3696,9 @@
     $("scheduleRuns").addEventListener("input", function () { scheduleDirty = true; });
     $("scheduleRuns").addEventListener("change", function () { scheduleDirty = true; });
     $("scheduleEnabled").addEventListener("change", function () { scheduleDirty = true; });
+    $("jetExerciseEnabled").addEventListener("change", function (e) {
+      command("set_jet_exercise", { enabled: e.target.checked });
+    });
 
     var selApiKeyType = $("selectApiKeyType");
     if (selApiKeyType) {

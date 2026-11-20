@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import json
 import logging
+import math
+import os
 import threading
 import time
 from typing import Any, Callable
@@ -34,6 +37,8 @@ except Exception:  # pragma: no cover
     }
 
 DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+# Survives restarts so a jet exercise in progress is always finished.
+JET_EXERCISE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".jet_exercise.json")
 FEATURE_LABELS = {
     "ne": "NE Floor Jet", "nw": "NW Floor Jet",
     "se": "SE Floor Jet", "sw": "SW Floor Jet",
@@ -56,6 +61,7 @@ class PoolController:
         self.lock = threading.RLock()
         self._objtypes: dict[str, str] = {}
         self._startup_applied = False
+        self._jet_exercise = _load_json(JET_EXERCISE_FILE)
         self._last_scan: dict[str, Any] = {}
         self._last_schedule_active: bool | None = None
         self._last_schedule_key: str | None = None
@@ -184,6 +190,7 @@ class PoolController:
                 LOG.exception("Connected IntelliCenter scan failed")
         self._merge_panel_state()
         self._run_schedule()
+        self._run_jet_exercise()
 
     def scan_status(self) -> dict[str, Any]:
         with self.lock:
@@ -431,7 +438,88 @@ class PoolController:
             "active": bool(active_run),
             "active_run": active_run.get("name") if active_run else None,
             "next": self._next_run_text(),
+            "jet_exercise": self._jet_exercise_status(),
         }
+
+    # ------------------------------------------------------------------
+    # Daily floor-jet exercise (keeps water moving in the features pump)
+    # ------------------------------------------------------------------
+    def _jet_exercise_cfg(self) -> dict[str, Any]:
+        cfg = (self.config.get("schedule") or {}).get("jet_exercise") or {}
+        jets = [j for j in cfg.get("jets", list(FEATURE_LABELS)) if j in FEATURE_LABELS]
+        return {"enabled": bool(cfg.get("enabled", True)),
+                "minutes": max(1, int(cfg.get("minutes", 10))),
+                "jets": jets or list(FEATURE_LABELS)}
+
+    def _sunset(self, day: dt.date) -> dt.datetime | None:
+        loc = self.config.get("location") or {}
+        try:
+            lat, lon = float(loc["latitude"]), float(loc["longitude"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        utc = _sunset_utc(day, lat, lon)
+        return utc.astimezone(self._now().tzinfo) if utc else None
+
+    def _run_jet_exercise(self) -> None:
+        cfg = self._jet_exercise_cfg()
+        now = self._now()
+        run = self._jet_exercise
+        if run.get("until"):
+            if now.timestamp() < run["until"] and cfg["enabled"]:
+                return
+            for jet in run.get("jets", []):
+                if self.state_data["deck_jets"][jet]["on"]:
+                    self.set_deck_jet(jet, on=False)
+            self._note("Daily floor-jet exercise finished")
+            self._save_jet_exercise({"date": run.get("date")})
+            return
+        if not cfg["enabled"] or not self.bridge.connected:
+            return
+        today = now.date().isoformat()
+        sunset = self._sunset(now.date())
+        if sunset is None or run.get("date") == today:
+            return
+        end = sunset + dt.timedelta(minutes=cfg["minutes"])
+        if not sunset <= now < end:
+            return
+        # Jets that are already running are left alone (and left on).
+        jets = [j for j in cfg["jets"] if not self.state_data["deck_jets"][j]["on"]]
+        for jet in jets:
+            self.set_deck_jet(jet, on=True)
+        self._save_jet_exercise({"date": today, "until": end.timestamp(), "jets": jets})
+        self._note("Daily floor-jet exercise: jets on until %s" % end.strftime("%I:%M %p").lstrip("0"))
+
+    def _save_jet_exercise(self, run: dict[str, Any]) -> None:
+        self._jet_exercise = run
+        try:
+            tmp = JET_EXERCISE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(run, fh)
+            os.replace(tmp, JET_EXERCISE_FILE)
+        except OSError:
+            LOG.warning("Could not save jet exercise state", exc_info=True)
+
+    def _jet_exercise_status(self) -> dict[str, Any]:
+        cfg = self._jet_exercise_cfg()
+        now = self._now()
+        status: dict[str, Any] = {"enabled": cfg["enabled"], "minutes": cfg["minutes"],
+                                  "running": bool(self._jet_exercise.get("until")),
+                                  "location_set": self._sunset(now.date()) is not None}
+        day = now.date()
+        if self._jet_exercise.get("date") == day.isoformat():
+            day += dt.timedelta(days=1)
+        sunset = self._sunset(day)
+        if sunset is not None and sunset + dt.timedelta(minutes=cfg["minutes"]) <= now:
+            sunset = self._sunset(day + dt.timedelta(days=1))
+        if sunset is not None:
+            status["next"] = sunset.strftime("%a %I:%M %p").replace(" 0", " ")
+        return status
+
+    def set_jet_exercise(self, enabled: bool) -> dict[str, Any]:
+        with self.lock:
+            self.config.setdefault("schedule", {}).setdefault("jet_exercise", {})["enabled"] = bool(enabled)
+            self.save_config(self.config)
+        return self._result(True, "Daily floor-jet exercise %s" % ("on" if enabled else "off"))
 
     # ------------------------------------------------------------------
     # Command entry point
@@ -495,6 +583,8 @@ class PoolController:
                 return self.set_schedule(
                     enabled=payload.get("enabled"), runs=payload.get("runs")
                 )
+            if action == "set_jet_exercise":
+                return self.set_jet_exercise(bool(payload.get("enabled")))
             if action == "system_off":
                 return self.system_off()
             if action == "ic_set_device":
@@ -1543,3 +1633,30 @@ def _hhmm_minutes(value: Any) -> int | None:
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         return None
     return hour * 60 + minute
+
+
+def _load_json(path: str) -> dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _sunset_utc(day: dt.date, lat: float, lon: float) -> dt.datetime | None:
+    """Sunset (UTC) for a date and place, using the NOAA solar equations."""
+    gamma = 2 * math.pi / 365 * (day.timetuple().tm_yday - 1)
+    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(gamma) - 0.032077 * math.sin(gamma)
+                       - 0.014615 * math.cos(2 * gamma) - 0.040849 * math.sin(2 * gamma))
+    decl = (0.006918 - 0.399912 * math.cos(gamma) + 0.070257 * math.sin(gamma)
+            - 0.006758 * math.cos(2 * gamma) + 0.000907 * math.sin(2 * gamma)
+            - 0.002697 * math.cos(3 * gamma) + 0.00148 * math.sin(3 * gamma))
+    lat_r = math.radians(lat)
+    cos_ha = (math.cos(math.radians(90.833)) / (math.cos(lat_r) * math.cos(decl))
+              - math.tan(lat_r) * math.tan(decl))
+    if not -1 <= cos_ha <= 1:
+        return None  # no sunset (polar day/night)
+    minutes = 720 - 4 * (lon - math.degrees(math.acos(cos_ha))) - eqtime
+    return (dt.datetime.combine(day, dt.time(), tzinfo=dt.timezone.utc)
+            + dt.timedelta(minutes=minutes))

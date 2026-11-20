@@ -5,3 +5,4 @@ config.local.json
 server.log
 *.pem
 *.key
+.jet_exercise.json
