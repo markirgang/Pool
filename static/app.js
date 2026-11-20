@@ -162,6 +162,27 @@
     });
   }
 
+  function askBurnerPassword() {
+    return new Promise(function (resolve) {
+      var modal = $("burnerPasswordModal");
+      var input = $("burnerPasswordInput");
+      if (!modal || !input) { resolve(window.prompt("Burner password") || null); return; }
+      input.value = "";
+      modal.style.display = "grid";
+      setTimeout(function () { input.focus(); }, 30);
+      function done(value) {
+        modal.style.display = "none";
+        $("burnerPasswordForm").onsubmit = null;
+        $("burnerPasswordCancel").onclick = null;
+        $("burnerPasswordCancelX").onclick = null;
+        resolve(value);
+      }
+      $("burnerPasswordForm").onsubmit = function (e) { e.preventDefault(); done(input.value || null); };
+      $("burnerPasswordCancel").onclick = function () { done(null); };
+      $("burnerPasswordCancelX").onclick = function () { done(null); };
+    });
+  }
+
   async function command(action, payload) {
     try {
       var result = await api("/api/command", {
@@ -169,6 +190,17 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: action, payload: payload || {} })
       });
+      if (result && result.password_required && !(payload && payload.password)) {
+        if (result.state) { state = result.state; render(); }
+        if (result.ok) toast(result.message, "good");
+        var password = await askBurnerPassword();
+        if (!password) return result;
+        // "All on" already started everything else; just light the burners.
+        if (action === "set_all_features") {
+          return command("set_firebasket", { id: "east", on: true, password: password });
+        }
+        return command(action, Object.assign({}, payload, { password: password }));
+      }
       if (result && result.state) {
         state = result.state;
         render();
@@ -357,7 +389,7 @@
       var basket = baskets[key] || {};
       var card = box.querySelector('[data-basket="' + key + '"]');
       if (!card) return;
-      card.classList.toggle("on", !!(basket.on || basket.water || basket.spa_water));
+      card.classList.toggle("on", !!(basket.on || basket.water || basket.spa_water || basket.burner_light));
 
       var flameToggle = card.querySelector('input[data-toggle="flame"]');
       if (flameToggle) flameToggle.checked = !!basket.on;
@@ -368,14 +400,20 @@
       var spaToggle = card.querySelector('input[data-spillway="spa"]');
       if (spaToggle) spaToggle.checked = !!basket.spa_water;
 
+      var lightToggle = card.querySelector('input[data-toggle="burner-light"]');
+      if (lightToggle) lightToggle.checked = !!basket.burner_light;
+
       var sub = card.querySelector('[data-sub="firebasket"]') || card.querySelector(".feature-sub");
       if (sub) {
         var parts = [];
         if (basket.water) parts.push("Pool");
         if (basket.spa_water) parts.push("Spa");
+        var fire = [];
+        if (basket.on) fire.push("Flame on");
+        if (basket.burner_light) fire.push("Lights on");
         sub.textContent = parts.length
-          ? parts.join(" & ") + " spillway flowing"
-          : (basket.on ? "Flame on \u00B7 spillways off" : "Spillways & flame off");
+          ? parts.join(" & ") + " spillway flowing" + (fire.length ? " \u00B7 " + fire.join(" \u00B7 ") : "")
+          : (fire.length ? fire.join(" \u00B7 ") + " \u00B7 spillways off" : "Spillways & flame off");
       }
     });
   }
@@ -1701,6 +1739,8 @@
       var spec = resolved.firebaskets[basket] || {};
       add("Firebasket " + basket + " pool fountain", spec.water);
       add("Firebasket " + basket + " spa fountain", spec.spa_water);
+      add("Firebasket " + basket + " burner", spec.burner);
+      add("Firebasket " + basket + " burner lights", spec.burner_light);
     });
     add("Blower", resolved.blower && resolved.blower.circuit);
     ["pool", "spa"].forEach(function (body) {
@@ -1762,11 +1802,13 @@
       icon: "🔥",
       items: [
         { path: "firebaskets.east.burner", label: "East Firepit Burner", hint: "East firepit animated flame & ember", type: "CIRCUIT" },
+        { path: "firebaskets.east.burner_light", label: "East Burner Lights", hint: "LED strip under the east burner", type: "CIRCUIT" },
         { path: "firebaskets.east.water", label: "East Firepit Pool Spillway", hint: "East spillway flowing into pool", type: "CIRCUIT" },
         { path: "firebaskets.east.spa_water", label: "East Firepit Spa Spillway", hint: "East spillway flowing into spa", type: "CIRCUIT" },
         { path: "firebaskets.east.spillway_pool_led", label: "East Pool Spillway Light", hint: "Light on the east pool spillway", type: "CIRCUIT" },
         { path: "firebaskets.east.spillway_spa_led", label: "East Spa Spillway Light", hint: "Light on the east spa spillway", type: "CIRCUIT" },
         { path: "firebaskets.west.burner", label: "West Firepit Burner", hint: "West firepit animated flame & ember", type: "CIRCUIT" },
+        { path: "firebaskets.west.burner_light", label: "West Burner Lights", hint: "LED strip under the west burner", type: "CIRCUIT" },
         { path: "firebaskets.west.water", label: "West Firepit Pool Spillway", hint: "West spillway flowing into pool", type: "CIRCUIT" },
         { path: "firebaskets.west.spa_water", label: "West Firepit Spa Spillway", hint: "West spillway flowing into spa", type: "CIRCUIT" },
         { path: "firebaskets.west.spillway_pool_led", label: "West Pool Spillway Light", hint: "Light on the west pool spillway", type: "CIRCUIT" },
@@ -1898,6 +1940,7 @@
         if (match(fspec.water)) return bName + " Pool Spillway";
         if (match(fspec.spa_water)) return bName + " Spa Spillway";
         if (match(fspec.burner)) return bName + " Burner";
+        if (match(fspec.burner_light)) return bName + " Burner Lights";
         if (match(fspec.spillway_pool_led)) return bName + " Pool LED";
         if (match(fspec.spillway_spa_led)) return bName + " Spa LED";
       }
@@ -1923,9 +1966,10 @@
     return null;
   }
 
-  async function controlDevice(objnam, on, speed, effect, setpoint) {
+  async function controlDevice(objnam, on, speed, effect, setpoint, password) {
     try {
       var payload = { objnam: objnam };
+      if (password) payload.password = password;
       if (on !== undefined && on !== null) payload.on = on;
       if (speed !== undefined && speed !== null) payload.speed = speed;
       if (effect !== undefined && effect !== null) payload.effect = effect;
@@ -1937,6 +1981,10 @@
         body: JSON.stringify(payload)
       });
 
+      if (result && result.password_required && !password) {
+        var pw = await askBurnerPassword();
+        if (pw) return controlDevice(objnam, on, speed, effect, setpoint, pw);
+      }
       if (result && result.state) {
         state = result.state;
         render();
@@ -2431,6 +2479,7 @@
       else if (slot === "firebaskets.east.burner") matched = findMatchingObj(["east", "burner"], ["CIRCUIT"]);
       else if (slot === "firebaskets.east.water") matched = findMatchingObj(["pool", "fountain", "e"], ["CIRCUIT"]);
       else if (slot === "firebaskets.east.spa_water") matched = findMatchingObj(["spa", "fountain", "e"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.east.burner_light" || slot === "firebaskets.west.burner_light") matched = findMatchingObj(["burner", "light"], ["CIRCUIT"]);
       else if (slot === "firebaskets.west.burner") matched = findMatchingObj(["west", "burner"], ["CIRCUIT"]);
       else if (slot === "firebaskets.west.water") matched = findMatchingObj(["pool", "fountain", "w"], ["CIRCUIT"]);
       else if (slot === "firebaskets.west.spa_water") matched = findMatchingObj(["spa", "fountain", "w"], ["CIRCUIT"]);
@@ -2553,6 +2602,10 @@
           '<div class="spillway-toggle-row">' +
           '<span>Spa Spillway</span>' +
           '<label class="switch"><input type="checkbox" data-spillway="spa"><span class="slider"></span></label>' +
+          '</div>' +
+          '<div class="spillway-toggle-row" title="AUX 1 lights the LED strips under both burners together">' +
+          '<span>Burner Lights</span>' +
+          '<label class="switch"><input type="checkbox" data-toggle="burner-light"><span class="slider"></span></label>' +
           '</div>' +
           '</div></div>';
       }).join("");
@@ -3567,6 +3620,8 @@
         command("set_firebasket", { id: key, spa_water: e.target.checked });
       } else if (e.target.matches('input[data-toggle="flame"]')) {
         command("set_firebasket", { id: key, on: e.target.checked });
+      } else if (e.target.matches('input[data-toggle="burner-light"]')) {
+        command("set_firebasket", { id: key, burner_light: e.target.checked });
       } else if (e.target.matches('input[data-toggle="firebasket"]')) {
         command("set_firebasket", { id: key, on: e.target.checked });
       }

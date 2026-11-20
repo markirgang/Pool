@@ -16,6 +16,8 @@ import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+import auth
+
 LOG = logging.getLogger("pool.controller")
 
 try:
@@ -91,7 +93,7 @@ class PoolController:
             },
             "firebaskets": {
                 basket: {
-                    "on": False, "water": False, "spa_water": False,
+                    "on": False, "water": False, "spa_water": False, "burner_light": False,
                     "spillway_pool_led": False, "spillway_spa_led": False,
                 }
                 for basket in FIREBASKET_LABELS
@@ -464,9 +466,12 @@ class PoolController:
                     on=payload.get("on"),
                     water=payload.get("water"),
                     spa_water=payload.get("spa_water"),
+                    burner_light=payload.get("burner_light"),
+                    password=payload.get("password"),
                 )
             if action == "set_all_features":
-                return self.set_all_features(bool(payload.get("on")))
+                return self.set_all_features(bool(payload.get("on")),
+                                             password=payload.get("password"))
             if action == "set_blower":
                 return self.set_blower(bool(payload.get("on")))
             if action == "set_spillway_color":
@@ -500,6 +505,7 @@ class PoolController:
                     effect=payload.get("effect"),
                     setpoint=payload.get("setpoint"),
                     params=payload.get("params"),
+                    password=payload.get("password"),
                 )
             if action == "ic_edit_device":
                 return self.ic_edit_device(
@@ -609,9 +615,14 @@ class PoolController:
         effect: str | None = None,
         setpoint: int | None = None,
         params: dict[str, Any] | None = None,
+        password: str | None = None,
     ) -> dict[str, Any]:
         if not objnam:
             return self._result(False, "No device objnam specified")
+        lighting = on is True or str((params or {}).get("STATUS", "")).upper() == "ON"
+        if lighting and objnam in self._burner_relays() \
+                and not auth.check_burner_password(self.config, password):
+            return self._burner_password_result()
 
         ok, msg = self.bridge.set_device_state(
             objnam, on=on, speed=speed, effect=effect, setpoint=setpoint, params=params
@@ -688,6 +699,8 @@ class PoolController:
                     self.state_data["firebaskets"][basket]["spa_water"] = bool(on)
                 if objnam == spec.get("burner") and on is not None:
                     self.state_data["firebaskets"][basket]["on"] = bool(on)
+                if objnam == spec.get("burner_light") and on is not None:
+                    self.state_data["firebaskets"][basket]["burner_light"] = bool(on)
 
             # Ensure features pump runs if water features are on
             if any(j["on"] for j in self.state_data["deck_jets"].values()) or any(
@@ -858,6 +871,7 @@ class PoolController:
         for basket, spec in (resolved.get("firebaskets") or {}).items():
             state = self.state_data["firebaskets"].get(basket, {})
             for field, needed in (("burner", state.get("on")),
+                                  ("burner_light", state.get("burner_light")),
                                   ("spillway_pool_led", state.get("water")),
                                   ("spillway_spa_led", state.get("spa_water"))):
                 objnam = spec.get(field)
@@ -922,8 +936,13 @@ class PoolController:
         on: bool | None = None,
         water: bool | None = None,
         spa_water: bool | None = None,
+        burner_light: bool | None = None,
+        password: str | None = None,
     ) -> dict[str, Any]:
         basket = basket if basket in FIREBASKET_LABELS else "east"
+        if on and not self.state_data["firebaskets"][basket].get("on") \
+                and not auth.check_burner_password(self.config, password):
+            return self._burner_password_result()
         with self.lock:
             state = self.state_data["firebaskets"][basket]
             if water is not None:
@@ -933,14 +952,17 @@ class PoolController:
             resolved = self.bridge.resolved()
             specs = resolved.get("firebaskets", {})
             spec = specs.get(basket, {})
-            if on is not None:
-                # Burners are separate from the spillways; baskets that share
-                # a burner relay light and go out together.
+            # Burners and burner lights are separate from the spillways;
+            # baskets that share a relay switch together.
+            for field, value in (("on", on), ("burner_light", burner_light)):
+                if value is None:
+                    continue
+                relay = spec.get("burner" if field == "on" else field)
                 for other, other_spec in specs.items():
-                    if other == basket or (spec.get("burner")
-                                           and other_spec.get("burner") == spec.get("burner")):
-                        self.state_data["firebaskets"][other]["on"] = bool(on)
-                state["on"] = bool(on)
+                    if other == basket or (relay and other_spec.get(
+                            "burner" if field == "on" else field) == relay):
+                        self.state_data["firebaskets"][other][field] = bool(value)
+                state[field] = bool(value)
 
             changes: dict[str, dict[str, Any]] = {}
             if spec.get("water"):
@@ -954,6 +976,8 @@ class PoolController:
         desc = []
         if state["on"]:
             desc.append("burner")
+        if state.get("burner_light"):
+            desc.append("burner lights")
         if state["water"]:
             desc.append("pool spillway")
         if state["spa_water"]:
@@ -965,8 +989,11 @@ class PoolController:
             msg,
         )
 
-    def set_all_features(self, on: bool) -> dict[str, Any]:
+    def set_all_features(self, on: bool, password: str | None = None) -> dict[str, Any]:
         on = bool(on)
+        # Without the burner password, "all on" lights everything but the burners.
+        burners = on and (any(b.get("on") for b in self.state_data["firebaskets"].values())
+                          or auth.check_burner_password(self.config, password))
         with self.lock:
             resolved = self.bridge.resolved()
             changes: dict[str, dict[str, Any]] = {}
@@ -982,7 +1009,7 @@ class PoolController:
                         self._power(changes, spec[field], on)
             for basket in FIREBASKET_LABELS:
                 state = self.state_data["firebaskets"][basket]
-                state.update({"on": on, "water": on, "spa_water": on})
+                state.update({"on": burners, "water": on, "spa_water": on, "burner_light": on})
                 spec = resolved.get("firebaskets", {}).get(basket, {})
                 for field in ("water", "spa_water"):
                     if spec.get(field):
@@ -994,7 +1021,21 @@ class PoolController:
                 self._power(changes, blower, on)
             self._ensure_features_pump(changes)
         ok, msg = self._send(changes, "all_features_%s" % ("on" if on else "off"))
+        if on and not burners:
+            result = self._result(ok, "All water features on except the burners, "
+                                      "which need the burner password", msg)
+            result["password_required"] = True
+            return result
         return self._result(ok, "All water features %s" % ("on" if on else "off"), msg)
+
+    def _burner_relays(self) -> set[str]:
+        return {spec["burner"] for spec in (self.bridge.resolved().get("firebaskets") or {}).values()
+                if spec.get("burner")}
+
+    def _burner_password_result(self) -> dict[str, Any]:
+        result = self._result(False, "The burners need the burner password")
+        result["password_required"] = True
+        return result
 
     def set_blower(self, on: bool) -> dict[str, Any]:
         on = bool(on)
@@ -1332,6 +1373,7 @@ class PoolController:
             for basket, spec in resolved.get("firebaskets", {}).items():
                 state = self.state_data["firebaskets"].setdefault(
                     basket, {"on": False, "water": False, "spa_water": False,
+                             "burner_light": False,
                              "spillway_pool_led": False, "spillway_spa_led": False})
                 if spec.get("water"):
                     state["water"] = on(spec["water"])
@@ -1340,6 +1382,7 @@ class PoolController:
                 state["spillway_pool_led"] = state["water"]
                 state["spillway_spa_led"] = state["spa_water"]
                 state["on"] = bool(spec.get("burner") and on(spec["burner"]))
+                state["burner_light"] = bool(spec.get("burner_light") and on(spec["burner_light"]))
 
             blower = (resolved.get("blower") or {}).get("circuit")
             if blower:

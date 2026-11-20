@@ -98,7 +98,12 @@ _BASE_FACTS = (
     "separate feature and only light when asked for (spillway 'flame') or when all "
     "water features are turned on. AUX 6 (Spa Spillway) runs both spa spillway "
     "lights and AUX 7 (Pool Spillway) runs both pool spillway lights; those lights "
-    "follow the spillways automatically. "
+    "follow the spillways automatically. Relay AUX 1 (Burner Lights) runs the LED "
+    "strips under both firebasket burners together; they are a separate feature "
+    "(spillway 'lights') and also switch with all water features. Lighting the "
+    "burners needs the burner password: pass the password the user says; if they "
+    "did not give one, ask them for it. You do not know the password, never guess "
+    "it, and never repeat it back. Turning burners off needs no password. "
     "There are color LED pool and spa lights, and a heater. IntelliCenter automatically "
     "moves the 3-way drain and return valves in pool/spa mode."
 )
@@ -177,7 +182,7 @@ class GeminiPoolBridge:
                 ),
                 types.FunctionDeclaration(
                     name="pool_set_firebasket",
-                    description="Control one firepit (east or west): its pool spillway, spa spillway, both spillways, or 'flame' for the burners. Burners are shared by both firepits and only change when 'flame' is chosen.",
+                    description="Control one firepit (east or west): its pool spillway, spa spillway, both spillways, 'flame' for the burners, or 'lights' for the LED burner lights under the burners. Burners and burner lights are each shared by both firepits and only change when 'flame' or 'lights' is chosen.",
                     parameters=types.Schema(
                         type=types.Type.OBJECT,
                         properties={
@@ -186,7 +191,11 @@ class GeminiPoolBridge:
                             ),
                             "on": types.Schema(type=types.Type.BOOLEAN),
                             "spillway": types.Schema(
-                                type=types.Type.STRING, enum=["pool", "spa", "both", "flame"]
+                                type=types.Type.STRING, enum=["pool", "spa", "both", "flame", "lights"]
+                            ),
+                            "password": types.Schema(
+                                type=types.Type.STRING,
+                                description="Burner password exactly as the user said it; required to light the burners ('flame' on).",
                             ),
                         },
                         required=["basket", "on"],
@@ -194,10 +203,16 @@ class GeminiPoolBridge:
                 ),
                 types.FunctionDeclaration(
                     name="pool_set_all_features",
-                    description="Turn all deck jets and firebaskets on or off together.",
+                    description="Turn all deck jets and firebaskets on or off together. Without the burner password, 'on' lights everything except the burners.",
                     parameters=types.Schema(
                         type=types.Type.OBJECT,
-                        properties={"on": types.Schema(type=types.Type.BOOLEAN)},
+                        properties={
+                            "on": types.Schema(type=types.Type.BOOLEAN),
+                            "password": types.Schema(
+                                type=types.Type.STRING,
+                                description="Burner password if the user gave one.",
+                            ),
+                        },
                         required=["on"],
                     ),
                 ),
@@ -415,17 +430,23 @@ class GeminiPoolBridge:
             spill = str(args.get("spillway") or "both").lower()
             val = bool(args.get("on"))
             payload = {"id": str(args.get("basket", "east")).lower()}
+            if args.get("password"):
+                payload["password"] = str(args["password"])
             if spill == "pool":
                 payload["water"] = val
             elif spill == "spa":
                 payload["spa_water"] = val
             elif spill == "flame":
                 payload["on"] = val
+            elif spill == "lights":
+                payload["burner_light"] = val
             else:
                 payload["water"] = val
                 payload["spa_water"] = val
         elif action == "set_all_features":
             payload = {"on": bool(args.get("on"))}
+            if args.get("password"):
+                payload["password"] = str(args["password"])
         elif action == "set_blower":
             payload = {"on": bool(args.get("on"))}
         elif action == "set_spillway_color":
@@ -496,8 +517,11 @@ class GeminiPoolBridge:
                 "%s=%s" % (key.upper(), "on" if value.get("on") else "off")
                 for key, value in jets.items()
             ),
-            "Firebaskets: %s" % ", ".join(
-                "%s=%s" % (key.capitalize(), "on" if value.get("on") else "off")
+            "Firebaskets: %s" % "; ".join(
+                "%s burner=%s, burner lights=%s, pool spillway=%s, spa spillway=%s" % (
+                    key.capitalize(),
+                    *("on" if value.get(f) else "off"
+                      for f in ("on", "burner_light", "water", "spa_water")))
                 for key, value in baskets.items()
             ),
             "Lights: pool=%s, spa=%s" % (

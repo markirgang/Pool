@@ -106,6 +106,12 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip(" ,.!?")
 
 
+def _password(text: str) -> str | None:
+    """Burner password spoken as "..., password <word>"."""
+    found = re.search(r"\b(?:password|pass ?code|code)(?: is)?,? (\S+)", text)
+    return found.group(1).strip(",.!?") if found else None
+
+
 def _on_off(text: str) -> bool | None:
     off = re.search(r"\b(off|stop|shut|kill|disable)\b", text)
     on = re.search(r"\b(on|start|enable|activate|run)\b", text)
@@ -170,6 +176,12 @@ def match_command(transcript: str, state: dict[str, Any]) -> tuple[str | None, d
 
     on = _on_off(text)
 
+    if on is not None and (
+            re.search(r"\b(burner|fire ?pit|fire ?basket|fire)s? (led )?(lights?|leds?|strips?)\b", text)
+            or re.search(r"\b(lights?|leds?|strips?) under (the )?(burners?|fire ?pits?|fire ?baskets?)\b", text)):
+        return ("set_firebasket", {"id": "east", "burner_light": on},
+                "The burner lights are %s." % ("on" if on else "off"))
+
     if re.search(r"\blights?\b", text) and on is not None:
         if re.search(r"\bspa\b", text) and not re.search(r"\bpool\b", text):
             return ("set_light", {"body": "spa", "on": on}, "The spa light is %s." % ("on" if on else "off"))
@@ -190,15 +202,25 @@ def match_command(transcript: str, state: dict[str, Any]) -> tuple[str | None, d
         if not named and re.search(r"\b(all|the|floor|deck)\b", text):
             return ("set_all_jets", {"on": on}, "The floor jets are %s." % ("on" if on else "off"))
 
-    if re.search(r"\b(burners?|flames?|fires?)\b", text) and on is not None \
+    burner_on = on
+    if burner_on is None and re.search(r"^(please )?(light|ignite) (up )?(the )?(burners?|fires?|fire ?pits?|fire ?baskets?)\b", text):
+        burner_on = True
+    if re.search(r"\b(burners?|flames?|fires?)\b", text) and burner_on is not None \
             and not re.search(r"\b(fountains?|spillways?)\b", text):
-        return ("set_firebasket", {"id": "east", "on": on},
+        on = burner_on
+        payload = {"id": "east", "on": on}
+        if _password(text):
+            payload["password"] = _password(text)
+        return ("set_firebasket", payload,
                 "The burners are %s." % ("on" if on else "off"))
     if re.search(r"\b(fountains?|fire ?pits?|fire ?baskets?|spillways?)\b", text) \
             and on is not None and not re.search(r"\b(east|west|pool|spa)\b", text):
         return ("set_all_firebaskets", {"on": on}, "The firepit fountains are %s." % ("on" if on else "off"))
     if re.search(r"\b(all (the )?)?(water )?features\b", text) and on is not None:
-        return ("set_all_features", {"on": on},
+        payload = {"on": on}
+        if _password(text):
+            payload["password"] = _password(text)
+        return ("set_all_features", payload,
                 "All the water features are %s." % ("on" if on else "off"))
 
     if re.search(r"\b(spa|hot tub|jacuzzi) mode\b|\bswitch to (the )?(spa|hot tub)\b|^turn on the (spa|hot tub)$", text):

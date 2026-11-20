@@ -14,6 +14,9 @@ which logs out every existing session.
 
 Add users or change passwords from a terminal on the Pi:
     .venv/bin/python auth.py
+
+Set or change the password needed to light the firebasket burners:
+    .venv/bin/python auth.py burner
 """
 
 from __future__ import annotations
@@ -139,6 +142,29 @@ def locked_out(client: str) -> bool:
         return len(recent) >= _MAX_FAILURES
 
 
+def burner_password_set(config: dict[str, Any]) -> bool:
+    return bool(_auth_cfg(config).get("burner_password_hash"))
+
+
+def check_burner_password(config: dict[str, Any], password: Any) -> bool:
+    """True if ``password`` unlocks the firebasket burners (or none is set).
+
+    Wrong guesses share one lockout, so it can't be brute-forced quickly.
+    """
+    stored = _auth_cfg(config).get("burner_password_hash")
+    if not stored:
+        return True
+    if locked_out("burner-password"):
+        return False
+    ok = bool(password) and verify_password(str(password).strip().lower(), stored)
+    with _failures_lock:
+        if ok:
+            _failures.pop("burner-password", None)
+        elif password:
+            _failures.setdefault("burner-password", []).append(time.time())
+    return ok
+
+
 def check_login(config: dict[str, Any], client: str, username: str, password: str) -> str | None:
     """Return the username on success, else None (and count the failure)."""
     if not is_configured(config) or locked_out(client):
@@ -181,17 +207,45 @@ def _set_password_cli() -> None:
             continue
         break
     current[username] = {"password_hash": hash_password(password), "role": role}
-    # A new secret logs out every existing session.
-    local["auth"] = {"users": current, "secret": secrets.token_hex(32)}
+    # A new secret logs out every existing session; keep the other settings
+    # (touchscreen sign-in, burner password).
+    local["auth"] = {**_auth_cfg(local), "users": current, "secret": secrets.token_hex(32)}
+    _save_local(path, local)
+    print("Saved '%s' (%s). Restart the app: systemctl --user restart pool.service" % (username, role))
+
+
+def _save_local(path: str, local: dict[str, Any]) -> None:
     tmp = path + ".tmp"
     with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
         json.dump(local, fh, indent=2)
         fh.write("\n")
     os.replace(tmp, path)
-    print("Saved '%s' (%s). Restart the app: systemctl --user restart pool.service" % (username, role))
+
+
+def _set_burner_password_cli() -> None:
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.local.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            local = json.load(fh)
+    except (OSError, ValueError):
+        local = {}
+    password = getpass.getpass("New burner password (blank removes it): ").strip().lower()
+    auth = local.setdefault("auth", {})
+    if password:
+        if password != getpass.getpass("Repeat burner password: ").strip().lower():
+            sys.exit("Passwords don't match")
+        auth["burner_password_hash"] = hash_password(password)
+    else:
+        auth.pop("burner_password_hash", None)
+    _save_local(path, local)
+    print("Burner password %s. Restart the app: systemctl --user restart pool.service"
+          % ("saved" if password else "removed"))
 
 
 if __name__ == "__main__":
     if not sys.stdin.isatty():
-        sys.exit("Run this in a terminal: .venv/bin/python auth.py")
-    _set_password_cli()
+        sys.exit("Run this in a terminal: .venv/bin/python auth.py [burner]")
+    if sys.argv[1:] == ["burner"]:
+        _set_burner_password_cli()
+    else:
+        _set_password_cli()

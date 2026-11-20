@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lighthouse Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=20">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -1763,6 +1763,11 @@
                     <td>Ignites procedural flickering flame meshes, glowing embers, and dynamic fire light glow.</td>
                   </tr>
                   <tr>
+                    <td><code>firebaskets.[east|west].burner_light</code></td>
+                    <td>CIRCUIT</td>
+                    <td>Lights the LED strip ring under the burner (AUX 1 &ldquo;Burner Lights&rdquo;, shared by both firebaskets).</td>
+                  </tr>
+                  <tr>
                     <td><code>firebaskets.[east|west].water</code></td>
                     <td>CIRCUIT</td>
                     <td>Discharges a smooth sheet of animated spillway water over the weir into the pool basin.</td>
@@ -2774,6 +2779,27 @@ sudo systemctl enable --now cloudflared</code></pre>
     </main>
 
   <!-- Modal: Add Device -->
+  <div class="modal-backdrop" id="burnerPasswordModal" style="display: none;">
+    <form class="modal-dialog login-dialog" id="burnerPasswordForm">
+      <div class="modal-head">
+        <h3>&#128293; Burner Password</h3>
+        <button class="modal-close" id="burnerPasswordCancelX" type="button">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">Enter the burner password to light the firebasket burners.</p>
+        <div class="form-grid login-grid">
+          <label>Password
+            <input type="password" id="burnerPasswordInput" autocomplete="off" required>
+          </label>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="burnerPasswordCancel" type="button">Cancel</button>
+        <button class="btn primary" type="submit">Light Burners</button>
+      </div>
+    </form>
+  </div>
+
   <div class="modal-backdrop" id="addDeviceModal" style="display: none;">
     <div class="modal-dialog">
       <div class="modal-head">
@@ -2888,9 +2914,9 @@ sudo systemctl enable --now cloudflared</code></pre>
     </form>
   </div>
 
-  <script src="pool3d.js?v=10"></script>
+  <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=26"></script>
+  <script src="app.js?v=28"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>

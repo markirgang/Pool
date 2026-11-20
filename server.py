@@ -67,6 +67,8 @@ ADMIN_GET_PATHS = frozenset({
     "/api/camera/snapshot", "/api/camera/frame", "/api/camera/stream",
 })
 ADMIN_POST_PATHS = frozenset({"/api/camera/look"})
+BURNER_PASSWORD_REPLY = ("%s. To light them, say: light the burners, password, "
+                         "and then the password.")
 # Long-lived sign-in for the Pi's own touchscreen; see auth.kiosk_user.
 KIOSK_COOKIE = "pool_kiosk"
 
@@ -1143,7 +1145,10 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
     if fast:
         action, payload, reply = fast
         applied = _apply_voice_action(action, payload)
-        text = reply if applied.get("ok") else "Sorry, that didn't work: %s" % applied.get("message")
+        if applied.get("password_required"):
+            text = BURNER_PASSWORD_REPLY % applied.get("message")
+        else:
+            text = reply if applied.get("ok") else "Sorry, that didn't work: %s" % applied.get("message")
         result: dict[str, Any] = {"text": text, "transcription": transcript, "fast": True,
                                   "applied": {"ok": applied.get("ok"), "message": applied.get("message")}}
         _finish_reply(result, text, local, speak_local, assistant)
@@ -1236,6 +1241,8 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
             "ok": applied.get("ok"),
             "message": applied.get("message"),
         }
+        if applied.get("password_required"):
+            text = result["text"] = BURNER_PASSWORD_REPLY % applied.get("message")
     _finish_reply(result, text, local, speak_local, assistant)
     return result
 

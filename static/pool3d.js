@@ -563,6 +563,18 @@
     glow.position.set(0, 1.1, 0);
     group.add(glow);
 
+    // LED strip under the burner (AUX 1 "Burner Lights", shared by both baskets)
+    var burnerLedMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3226, emissive: 0xffd9a0, emissiveIntensity: 0.0
+    });
+    var burnerLed = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.025, 6, 32), burnerLedMat);
+    burnerLed.rotation.x = Math.PI / 2;
+    burnerLed.position.y = 0.47;
+    group.add(burnerLed);
+    var burnerLedLight = new THREE.PointLight(0xffd9a0, 0.0, 3.5, 2);
+    burnerLedLight.position.set(0, 0.62, 0);
+    group.add(burnerLedLight);
+
     // Dual spillways: one emptying into the pool, one emptying into the spa
     function makeSpillway(angleRad) {
       var spillGroup = new THREE.Group();
@@ -603,6 +615,7 @@
 
     baskets[key] = {
       group: group, flames: flames, ember: ember, glow: glow,
+      burnerLedMat: burnerLedMat, burnerLedLight: burnerLedLight,
       poolSpill: poolSpill, spaSpill: spaSpill, label: label,
       on: false, seed: Math.random() * 20
     };
@@ -1148,8 +1161,12 @@
       var burnerOn = !!bs.on;
       var poolFlow = !!bs.water;
       var spaFlow = !!bs.spa_water;
+      var burnerLight = !!bs.burner_light;
 
       b.on = burnerOn || poolFlow || spaFlow;
+      b.burnerLedMat.emissiveIntensity = burnerLight ? 2.4 : 0.0;
+      b.burnerLedMat.color.setHex(burnerLight ? 0xffe6c0 : 0x3a3226);
+      b.burnerLedLight.intensity = burnerLight ? 1.6 : 0.0;
       b.flames.forEach(function (flame) { flame.visible = burnerOn; });
       b.ember.material.emissiveIntensity = burnerOn ? 1.8 : 0.0;
       b.glow.intensity = burnerOn ? 2.4 : 0;
@@ -1174,10 +1191,12 @@
       var parts = [];
       if (poolFlow) parts.push("POOL");
       if (spaFlow) parts.push("SPA");
-      var statusText = parts.length ? parts.join("+") : (burnerOn ? "FIRE" : "OFF");
+      if (burnerOn) parts.push("FIRE");
+      if (burnerLight) parts.push("LIT");
+      var statusText = parts.length ? parts.join("+") : "OFF";
       updateLabel(b.label,
         (key === "east" ? "FB EAST " : "FB WEST ") + statusText,
-        (poolFlow || spaFlow || burnerOn) ? "#ffcf9a" : "#8c7462");
+        (poolFlow || spaFlow || burnerOn || burnerLight) ? "#ffcf9a" : "#8c7462");
     });
 
     // pumps / heater / valves
