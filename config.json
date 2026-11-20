@@ -46,16 +46,16 @@
     },
     "firebaskets": {
       "east": {
-        "water": "Pool Fountain E",
-        "spa_water": "Spa Fountain E",
+        "water": "FTR05",
+        "spa_water": "FTR08",
         "burner": "C0007",
         "burner_light": "C0002",
         "spillway_pool_led": "C0009",
         "spillway_spa_led": "C0008"
       },
       "west": {
-        "water": "Pool Fountain W",
-        "spa_water": "Spa Fountain W",
+        "water": "FTR03",
+        "spa_water": "FTR01",
         "burner": "C0007",
         "burner_light": "C0002",
         "spillway_pool_led": "C0009",

@@ -1745,8 +1745,8 @@
     });
     Object.keys(resolved.firebaskets || {}).forEach(function (basket) {
       var spec = resolved.firebaskets[basket] || {};
-      add("Firebasket " + basket + " pool fountain", spec.water);
-      add("Firebasket " + basket + " spa fountain", spec.spa_water);
+      add("Firebasket " + basket + " pool spillway", spec.water);
+      add("Firebasket " + basket + " spa spillway", spec.spa_water);
       add("Firebasket " + basket + " burner", spec.burner);
       add("Firebasket " + basket + " burner lights", spec.burner_light);
     });
@@ -2485,12 +2485,12 @@
       else if (slot === "deck_jets.sw.light") matched = findMatchingObj(["deck", "light"], ["CIRCUIT"]);
       else if (slot === "deck_jets.sw.thumper") matched = findMatchingObj(["thump"], ["CIRCUIT"]);
       else if (slot === "firebaskets.east.burner") matched = findMatchingObj(["east", "burner"], ["CIRCUIT"]);
-      else if (slot === "firebaskets.east.water") matched = findMatchingObj(["pool", "fountain", "e"], ["CIRCUIT"]);
-      else if (slot === "firebaskets.east.spa_water") matched = findMatchingObj(["spa", "fountain", "e"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.east.water") matched = findMatchingObj(["pool", "spillway", " e"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.east.spa_water") matched = findMatchingObj(["spa", "spillway", " e"], ["CIRCUIT"]);
       else if (slot === "firebaskets.east.burner_light" || slot === "firebaskets.west.burner_light") matched = findMatchingObj(["burner", "light"], ["CIRCUIT"]);
       else if (slot === "firebaskets.west.burner") matched = findMatchingObj(["west", "burner"], ["CIRCUIT"]);
-      else if (slot === "firebaskets.west.water") matched = findMatchingObj(["pool", "fountain", "w"], ["CIRCUIT"]);
-      else if (slot === "firebaskets.west.spa_water") matched = findMatchingObj(["spa", "fountain", "w"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.west.water") matched = findMatchingObj(["pool", "spillway", " w"], ["CIRCUIT"]);
+      else if (slot === "firebaskets.west.spa_water") matched = findMatchingObj(["spa", "spillway", " w"], ["CIRCUIT"]);
       else if (slot === "blower.circuit") matched = findMatchingObj(["blower"], ["CIRCUIT"]);
       else if (slot === "lights.pool") matched = findMatchingObj(["pool", "light"], ["CIRCUIT"]);
       else if (slot === "lights.spa") matched = findMatchingObj(["spa", "light"], ["CIRCUIT"]);

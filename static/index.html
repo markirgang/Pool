@@ -308,7 +308,7 @@
               <!-- populated by app.js -->
             </div>
 
-            <h3 class="group-title">Firebaskets &amp; Fountains</h3>
+            <h3 class="group-title">Firebaskets &amp; Spillways</h3>
             <div class="feature-grid" id="firebaskets">
               <!-- populated by app.js -->
             </div>
@@ -1518,7 +1518,7 @@
             </div>
           </div>
           <div class="manual-body-text">
-            <p>These tables were taken from the live IntelliCenter panel on November 19, 2026. If equipment is added or renamed later, the <strong>IntelliCenter</strong> tab&rsquo;s <em>Equipment &amp; Wiring</em> report always shows the panel&rsquo;s current setup. The panel only knows what each relay is <em>assigned</em> to; it cannot see what is physically wired to it.</p>
+            <p>These tables were taken from the live IntelliCenter panel on November 19, 2026. Panel names can be at most 15 characters. If equipment is added or renamed later, the <strong>IntelliCenter</strong> tab&rsquo;s <em>Equipment &amp; Wiring</em> report always shows the panel&rsquo;s current setup. The panel only knows what each relay is <em>assigned</em> to; it cannot see what is physically wired to it.</p>
 
             <h4 style="margin-top: 14px;">Relays (AUX Outputs)</h4>
             <div class="manual-table-wrap">
@@ -1585,16 +1585,16 @@
                   <tr>
                     <td><strong>AUX 6</strong></td>
                     <td><code>C0008</code></td>
-                    <td>Spa Spillway</td>
-                    <td>Spa spillway lights on both firebaskets.</td>
-                    <td>Automatic: on whenever Spa Fountain E or W is on, off when both are off.</td>
+                    <td>Spa Spill Lts</td>
+                    <td>On/off (non-IntelliBrite) spa spillway lights on both firebaskets.</td>
+                    <td>Automatic: on whenever Spa Spillway E or W is on, off when both are off.</td>
                   </tr>
                   <tr>
                     <td><strong>AUX 7</strong></td>
                     <td><code>C0009</code></td>
-                    <td>Pool Spillway</td>
-                    <td>Pool spillway lights on both firebaskets.</td>
-                    <td>Automatic: on whenever Pool Fountain E or W is on, off when both are off.</td>
+                    <td>Pool Spill Lts</td>
+                    <td>On/off (non-IntelliBrite) pool spillway lights on both firebaskets.</td>
+                    <td>Automatic: on whenever Pool Spillway E or W is on, off when both are off.</td>
                   </tr>
                 </tbody>
               </table>
@@ -1618,10 +1618,10 @@
                   <tr><td><strong>NW Floor Jet</strong></td><td><code>FTR06</code></td><td><code>VAL01</code></td><td>1750 RPM</td><td>NW deck laminar jet</td></tr>
                   <tr><td><strong>SE Floor Jet</strong></td><td><code>FTR04</code></td><td><code>VAL11</code></td><td>1750 RPM</td><td>SE deck laminar jet</td></tr>
                   <tr><td><strong>SW Floor Jet</strong></td><td><code>FTR07</code></td><td><code>VAL02</code></td><td>1750 RPM</td><td>SW deck laminar jet</td></tr>
-                  <tr><td><strong>Pool Fountain E</strong></td><td><code>FTR05</code></td><td><code>VAL07</code></td><td>2050 RPM</td><td>East firepit pool spillway (turns on AUX 7 lights)</td></tr>
-                  <tr><td><strong>Spa Fountain E</strong></td><td><code>FTR08</code></td><td><code>VAL12</code></td><td>2050 RPM</td><td>East firepit spa spillway (turns on AUX 6 lights)</td></tr>
-                  <tr><td><strong>Pool Fountain W</strong></td><td><code>FTR03</code></td><td><code>VAL10</code></td><td>2050 RPM</td><td>West firepit pool spillway (turns on AUX 7 lights)</td></tr>
-                  <tr><td><strong>Spa Fountain W</strong></td><td><code>FTR01</code></td><td><code>VAL08</code></td><td>1750 RPM</td><td>West firepit spa spillway (turns on AUX 6 lights)</td></tr>
+                  <tr><td><strong>Pool Spillway E</strong></td><td><code>FTR05</code></td><td><code>VAL07</code></td><td>2050 RPM</td><td>East firepit pool spillway (turns on AUX 7 lights)</td></tr>
+                  <tr><td><strong>Spa Spillway E</strong></td><td><code>FTR08</code></td><td><code>VAL12</code></td><td>2050 RPM</td><td>East firepit spa spillway (turns on AUX 6 lights)</td></tr>
+                  <tr><td><strong>Pool Spillway W</strong></td><td><code>FTR03</code></td><td><code>VAL10</code></td><td>2050 RPM</td><td>West firepit pool spillway (turns on AUX 7 lights)</td></tr>
+                  <tr><td><strong>Spa Spillway W</strong></td><td><code>FTR01</code></td><td><code>VAL08</code></td><td>1750 RPM</td><td>West firepit spa spillway (turns on AUX 6 lights)</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1654,7 +1654,7 @@
               <h4 style="margin: 0 0 8px 0; font-size: 0.95rem;">🔥 Firebasket Relays Are Shared</h4>
               <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; line-height: 1.6;">
                 <li>The east and west firebaskets share AUX 5 (burners), AUX 1 (burner lights), AUX 6 (spa spillway lights) and AUX 7 (pool spillway lights). Switching either firepit&rsquo;s Flame or Burner Lights switches both.</li>
-                <li>Only the spillways are separate for each firepit (Pool/Spa Fountain E and W).</li>
+                <li>Only the spillways are separate for each firepit (Pool/Spa Spillway E and W).</li>
                 <li>The burner password is checked by the pool app. The IntelliCenter&rsquo;s own screen and Pentair&rsquo;s app can still light the burners without it.</li>
                 <li>Change the burner password from a terminal on the Pi: <code>.venv/bin/python auth.py burner</code></li>
               </ul>
@@ -2300,7 +2300,7 @@ systemctl --user restart pool.service</code></pre>
                   <tr>
                     <td><strong>Water feature activates but no water flows</strong></td>
                     <td>Features VS pump not running, or the feature&rsquo;s valve actuator did not open.</td>
-                    <td>Check the Features pump card is running at the feature&rsquo;s speed (1750 RPM floor jets, 1750&ndash;2050 RPM fountains); check the feature&rsquo;s valve on the IntelliCenter tab (see Section 3).</td>
+                    <td>Check the Features pump card is running at the feature&rsquo;s speed (1750 RPM floor jets, 1750&ndash;2050 RPM spillways); check the feature&rsquo;s valve on the IntelliCenter tab (see Section 3).</td>
                     <td>The system starts the Features pump automatically; check the strainer basket for debris and listen for the valve actuator moving.</td>
                   </tr>
                   <tr>
@@ -2932,7 +2932,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=30"></script>
+  <script src="app.js?v=31"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>

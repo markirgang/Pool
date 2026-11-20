@@ -45,8 +45,8 @@ FEATURE_LABELS = {
 }
 FIREBASKET_LABELS = {"east": "East Firebasket", "west": "West Firebasket"}
 FIREBASKET_FOUNTAIN_LABELS = {
-    "east": ("Pool Fountain E", "Spa Fountain E"),
-    "west": ("Pool Fountain W", "Spa Fountain W"),
+    "east": ("Pool Spillway E", "Spa Spillway E"),
+    "west": ("Pool Spillway W", "Spa Spillway W"),
 }
 
 
