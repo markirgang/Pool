@@ -67,6 +67,48 @@ AVAILABLE_MODELS = {
 }
 
 
+# Reused clients keep their HTTPS connection open between requests, saving a
+# TLS handshake to the gateway (often a few hundred ms) on every voice reply.
+_CLIENTS: dict[tuple[str, str], Any] = {}
+_CLIENTS_LOCK = __import__("threading").Lock()
+
+
+def _client(provider: str, key: str):
+    with _CLIENTS_LOCK:
+        client = _CLIENTS.get((provider, key))
+        if client is None:
+            if provider == "opencode-go":
+                client = genai.Client(
+                    api_key=key,
+                    http_options=types.HttpOptions(
+                        base_url=OPENCODE_BASE_URL,
+                        # The gateway serves the v1beta API; the genai library
+                        # defaults to /v1/, which returns 404 for every model.
+                        api_version="v1beta",
+                        headers={
+                            "Authorization": "Bearer " + key,
+                            "x-opencode-session": str(uuid.uuid4()),
+                        },
+                    ),
+                )
+            else:
+                client = genai.Client(api_key=key)
+            _CLIENTS[(provider, key)] = client
+        return client
+
+
+def warm_up(api_key: str = "", provider: str = "") -> None:
+    """Open the connection to the AI gateway ahead of the first request."""
+    try:
+        chosen, _ = detect_provider(api_key or DEFAULT_OPENCODE_KEY, provider)
+        if chosen == "ollama" or not GENAI_AVAILABLE:
+            return
+        key = api_key or DEFAULT_OPENCODE_KEY
+        _client(chosen, key).models.list(config={"page_size": 1})
+    except Exception as exc:
+        LOG.debug("AI warm-up skipped: %s", exc)
+
+
 def detect_provider(api_key: str = "", provider: str = "", model: str = "") -> tuple[str, str]:
     raw_model = (model or "").strip()
     if ":" in raw_model:
@@ -289,20 +331,7 @@ def call_ai(
             # OpenCode keys (oc_sk_/AQ.) work only through the OpenCode
             # gateway. Go there first so we don't waste a request (and add
             # latency) hitting Google directly with a key it can't use.
-            session_id = str(uuid.uuid4())
-            client = genai.Client(
-                api_key=effective_key,
-                http_options=types.HttpOptions(
-                    base_url=OPENCODE_BASE_URL,
-                    # The gateway serves the v1beta API; the genai library
-                    # defaults to /v1/, which returns 404 for every model.
-                    api_version="v1beta",
-                    headers={
-                        "Authorization": "Bearer " + effective_key,
-                        "x-opencode-session": session_id,
-                    },
-                ),
-            )
+            client = _client("opencode-go", effective_key)
             try:
                 response = client.models.generate_content(
                     model=chosen_model,
@@ -318,14 +347,14 @@ def call_ai(
                 # A Google-style key with the provider forced to opencode-go
                 # may still work direct; keep that as a fallback.
                 LOG.warning("OpenCode gateway failed (%s); trying Google direct", gateway_exc)
-                client = genai.Client(api_key=effective_key)
+                client = _client("google", effective_key)
                 response = client.models.generate_content(
                     model=chosen_model,
                     contents=contents or ["Hello"],
                     config=config,
                 )
         else:
-            client = genai.Client(api_key=effective_key)
+            client = _client("google", effective_key)
             response = client.models.generate_content(
                 model=chosen_model,
                 contents=contents or ["Hello"],

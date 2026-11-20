@@ -607,6 +607,106 @@ class LocalAudio:
             LOG.warning(self._last_error)
             return None
 
+    def speak(self, text: str, voice_id: str | None = None,
+              on_start: Callable[[], None] | None = None) -> None:
+        """Say text on the Pi speaker, starting as soon as the voice starts arriving.
+
+        Neural (edge) voices are streamed straight into the speaker instead of
+        being fully downloaded, converted to WAV and then played. Returns at
+        once; on_start is called when the first audio reaches the speaker.
+        """
+        clean = (text or "").strip()
+        if not clean:
+            return
+        profile = VOICE_PROFILES.get(str(voice_id or "").strip() or DEFAULT_SERVER_VOICE,
+                                     VOICE_PROFILES[DEFAULT_SERVER_VOICE])
+        key = (clean, str(voice_id or "us"))
+        streamable = (profile.get("engine") == "edge" and shutil.which("ffmpeg")
+                      and (shutil.which("pw-cat") or shutil.which("aplay")))
+        if key in self._cache or not streamable:
+            data, mime = self.synthesize(clean, voice_id)
+            if data:
+                if on_start:
+                    on_start()
+                self.play(data, mime, clean)
+            return
+        # Keep the mic muted from now on so Iggy doesn't hear himself.
+        self._speaking_until = max(self._speaking_until, time.time() + 30.0)
+        self._last_spoken = time.time()
+        threading.Thread(target=self._stream_edge, args=(clean, profile["voice"], key, on_start),
+                         name="local-speaker-stream", daemon=True).start()
+
+    def _stream_edge(self, text: str, voice: str, key: tuple[str, str],
+                     on_start: Callable[[], None] | None) -> None:
+        if not self._speak_lock.acquire(blocking=False):
+            self._speaking_until = time.time() + 1.5
+            return
+        audio = bytearray()
+        decoder = player = None
+        fallback = complete = False
+        try:
+            import asyncio
+            import edge_tts
+            rate = 24000
+            device = self._output_candidates()[0]
+            if device.startswith("pw:"):
+                play_cmd = (["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", str(rate),
+                             "--channels", "1"] + (["--target", device[3:]] if device[3:] else []) + ["-"])
+            else:
+                play_cmd = ["aplay", "-q", "-D", device, "-t", "raw", "-f", "S16_LE",
+                            "-r", str(rate), "-c", "1"]
+            decoder = subprocess.Popen(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-probesize", "32",
+                 "-analyzeduration", "0", "-fflags", "nobuffer", "-f", "mp3", "-i", "pipe:0",
+                 "-f", "s16le", "-ac", "1", "-ar", str(rate), "pipe:1"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            player = subprocess.Popen(play_cmd, stdin=decoder.stdout,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            decoder.stdout.close()
+            started = False
+
+            async def run() -> None:
+                nonlocal started
+                async for chunk in edge_tts.Communicate(text, voice).stream():
+                    if chunk.get("type") != "audio":
+                        continue
+                    audio.extend(chunk["data"])
+                    decoder.stdin.write(chunk["data"])
+                    decoder.stdin.flush()
+                    if not started:
+                        started = True
+                        if on_start:
+                            on_start()
+
+            asyncio.run(asyncio.wait_for(run(), timeout=20))
+            complete = True
+            decoder.stdin.close()
+            player.wait(timeout=120)
+            decoder.wait(timeout=5)
+            if player.returncode != 0:
+                detail = (player.stderr.read() if player.stderr else b"").decode("utf-8", "replace")
+                LOG.warning("Streaming speaker failed (%s); playing normally", detail.strip()[:120])
+                fallback = True
+            else:
+                self._active_output = device
+                self._last_error = ""
+        except Exception as exc:
+            LOG.warning("Streaming speech failed: %s", exc)
+            fallback = True
+            for proc in (decoder, player):
+                if proc and proc.poll() is None:
+                    proc.kill()
+        finally:
+            self._speak_lock.release()
+            if audio and complete:
+                if len(self._cache) > 160:
+                    self._cache.pop(next(iter(self._cache)))
+                self._cache[key] = bytes(audio)
+            if fallback and audio and complete:
+                self._play_blocking(bytes(audio), "audio/mpeg")
+            else:
+                self._speaking_until = time.time() + 1.5
+
     def play(self, data: bytes, mime: str = "audio/mpeg", text: str = "") -> None:
         if not data or not (shutil.which("pw-play") or shutil.which("aplay")):
             return

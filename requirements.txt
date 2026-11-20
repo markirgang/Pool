@@ -3,3 +3,4 @@ zeroconf>=0.132
 google-genai>=1.0.0
 gTTS>=2.5
 edge-tts>=7.0
+faster-whisper>=1.2  # on-Pi speech recognition (local_stt.py)

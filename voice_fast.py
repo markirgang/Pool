@@ -23,7 +23,7 @@ from typing import Any
 LOG = logging.getLogger("pool.voice")
 
 DEFAULT_STT_MODEL = "gemini-4-argon"
-DEFAULT_REPLY_MODEL = "gpt-5.6-luna"
+DEFAULT_REPLY_MODEL = "glm-5.3-flash"  # ~1.6 s with reliable tool calls (Nov 2026 tests)
 
 # Don't mention the assistant's name here: the model then "hears" Iggy in
 # background noise and Iggy answers when nobody spoke to him.
@@ -97,12 +97,12 @@ _COLOR_SPOKEN = {"PARTY": "party mode", "ROYAL": "royal blue", "CARIB": "caribbe
                  "WHITER": "white"}
 _JETS = {"ne": r"north ?east|n\.?e\.?", "nw": r"north ?west|n\.?w\.?",
          "se": r"south ?east|s\.?e\.?", "sw": r"south ?west|s\.?w\.?"}
-_WAKE = re.compile(r"^\s*(?:(?:hey|ok|okay|hi|yo)\s+)?(?:iggy|iggie|iggi|iggey|igy|ziggy)\b[\s,.!?-]*", re.I)
+_WAKE = re.compile(r"^\s*(?:(?:hey|ok|okay|hi|yo)\s+)?(?:iggy|iggie|iggi|iggey|igy|ziggy|eggy|eggie|yagi)\b[\s,.!?-]*", re.I)
 
 
 def _clean(text: str) -> str:
     text = _WAKE.sub("", text or "")
-    text = re.sub(r"[,.!?]+\s*(iggy|iggie)\s*[.!?]*$", "", text, flags=re.I)
+    text = re.sub(r"[,.!?]+\s*(iggy|iggie|eggy)\s*[.!?]*$", "", text, flags=re.I)
     return re.sub(r"\s+", " ", text.lower()).strip(" ,.!?")
 
 

@@ -48,6 +48,7 @@ from intellicenter_bridge import IntelliCenterBridge
 from local_audio import LocalAudio
 import local_audio
 import ai_engine
+import local_stt
 from local_camera import LocalCamera
 from pool_controller import PoolController
 
@@ -270,7 +271,44 @@ def _decorate_state(state: dict[str, Any]) -> dict[str, Any]:
     decorated["camera"] = LOCAL_CAMERA.status() if LOCAL_CAMERA else {
         "available": False, "device": "auto",
     }
+    decorated["voice_timing"] = _voice_timing()
     return decorated
+
+
+# Where the time went on the most recent voice request (Voice tab, Speed card).
+VOICE_TIMING: dict[str, Any] = {}
+VOICE_TIMING_LOCK = threading.Lock()
+
+
+def _voice_timing() -> dict[str, Any]:
+    with VOICE_TIMING_LOCK:
+        t = dict(VOICE_TIMING)
+    if not t.get("started"):
+        return {}
+    start = t["started"]
+    out = {"at": start, "path": t.get("path"), "engine": t.get("engine"),
+           "reply_model": t.get("reply_model"), "transcript": t.get("transcript", "")}
+    for key, mark in (("heard_s", "heard"), ("answered_s", "replied"), ("speaking_s", "speaking")):
+        if t.get(mark):
+            out[key] = round(t[mark] - start, 2)
+    return out
+
+
+def _mark_timing(timing: dict[str, Any] | None, **marks: Any) -> None:
+    if timing is None:
+        return
+    with VOICE_TIMING_LOCK:
+        timing.update(marks)
+        if VOICE_TIMING is not timing:
+            VOICE_TIMING.clear()
+        VOICE_TIMING.update(timing)
+
+
+def _stt_setting(assistant: dict[str, Any]) -> str:
+    setting = str(assistant.get("stt_model") or local_stt.DEFAULT_MODEL)
+    if local_stt.is_local(setting) and not local_stt.available():
+        return voice_fast.DEFAULT_STT_MODEL
+    return setting
 
 
 def _state() -> dict[str, Any]:
@@ -316,6 +354,7 @@ def _public_config() -> dict[str, Any]:
     cfg = json.loads(json.dumps(CONFIG))
     cfg.pop("gemini_api_key", None)
     cfg.pop("auth", None)
+    cfg.pop("location", None)  # home coordinates; /api/config needs no login
     alexa = cfg.get("alexa") or {}
     token = alexa.pop("token", None)
     alexa["token_set"] = bool(token)
@@ -965,6 +1004,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         if LOCAL_AUDIO:
             LOCAL_AUDIO.reconfigure()
             _prewarm_voice_async()
+        if isinstance(data.get("assistant"), dict) and "stt_model" in data["assistant"]:
+            local_stt.preload(_stt_setting(CONFIG.get("assistant") or {}))
         if LOCAL_CAMERA:
             LOCAL_CAMERA.reconfigure()
         if ic_changed:
@@ -1046,7 +1087,8 @@ def _alexa_ask_iggy(query: str) -> str:
     return text
 
 
-WAKE_WORDS = ("iggy", "iggie", "iggi", "iggey", "igy", "ziggy", "iggys")
+# "eggy"/"eggie"/"yagi" are how on-Pi Whisper sometimes hears "Iggy".
+WAKE_WORDS = ("iggy", "iggie", "iggi", "iggey", "igy", "ziggy", "iggys", "eggy", "eggie", "yagi")
 
 
 def _has_wake_word(transcription: Any) -> bool:
@@ -1077,6 +1119,13 @@ def _prewarm_voice_async() -> None:
     threading.Thread(target=run, name="voice-prewarm", daemon=True).start()
 
 
+def _prewarm_ai_async() -> None:
+    """Load the on-Pi speech model and open the AI connection before anyone talks."""
+    local_stt.preload(_stt_setting(CONFIG.get("assistant") or {}))
+    threading.Thread(target=lambda: ai_engine.warm_up(_gemini_key({}), _ai_provider({})),
+                     name="ai-warmup", daemon=True).start()
+
+
 def _apply_voice_action(action: str | None, payload: dict[str, Any]) -> dict[str, Any]:
     """Run an instant voice command; a few expand to several panel commands."""
     if not action:
@@ -1101,10 +1150,19 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
     assistant = CONFIG.get("assistant") or {}
     if not audio:
         return {"text": "I didn't hear anything.", "state": _state()}
+    stt_setting = _stt_setting(assistant)
+    timing: dict[str, Any] = {"started": started, "engine": stt_setting}
+    transcript = None
+    if local_stt.is_local(stt_setting):
+        try:
+            transcript = local_stt.transcribe(audio, mime_type, stt_setting)
+        except Exception as exc:
+            LOG.warning("On-Pi speech recognition failed (%s); using the cloud", exc)
+            stt_setting = timing["engine"] = voice_fast.DEFAULT_STT_MODEL
     try:
-        transcript = voice_fast.transcribe(
-            api_key, audio, mime_type,
-            model=assistant.get("stt_model") or voice_fast.DEFAULT_STT_MODEL, provider=provider)
+        if transcript is None:
+            transcript = voice_fast.transcribe(
+                api_key, audio, mime_type, model=stt_setting, provider=provider)
     except Exception as exc:
         message = str(exc)
         if re.search(r"429|RESOURCE_EXHAUSTED|quota|rate.?limit", message, re.I):
@@ -1131,6 +1189,7 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
                             image_bytes=image, provider=provider)
     heard = time.time()
     AI_STATUS.update({"ok": True, "error": "", "at": time.time()})
+    timing.update(heard=heard, transcript=transcript or "")
     if not transcript:
         return {"text": "", "ignored": True, "state": _state(), "transcription": ""}
     if local and not _has_wake_word(transcript):
@@ -1158,8 +1217,10 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
             text = reply if applied.get("ok") else "Sorry, that didn't work: %s" % applied.get("message")
         result: dict[str, Any] = {"text": text, "transcription": transcript, "fast": True,
                                   "applied": {"ok": applied.get("ok"), "message": applied.get("message")}}
-        _finish_reply(result, text, local, speak_local, assistant)
-        LOG.info("Voice (instant) %.1fs: %r -> %r", time.time() - started, transcript, text)
+        timing["path"] = "instant"
+        _finish_reply(result, text, local, speak_local, assistant, timing)
+        LOG.info("Voice (instant, %s) heard in %.1fs, answered in %.1fs: %r -> %r",
+                 timing["engine"], heard - started, time.time() - started, transcript, text)
         return result
 
     image = None
@@ -1173,18 +1234,20 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
     reply_model = assistant.get("reply_model") or voice_fast.DEFAULT_REPLY_MODEL
     if image is not None and provider == "opencode-go":
         reply_model = "gemini-4-argon"
+    timing.update(path="AI", reply_model=reply_model)
     result = _gemini_call(
         api_key, prompt, local=local, speak_local=speak_local, image_bytes=image,
         provider=provider, model=reply_model,
-        transcription=transcript)
-    LOG.info("Voice (AI) heard in %.1fs, answered in %.1fs: %r", heard - started,
-             time.time() - started, transcript)
+        transcription=transcript, timing=timing)
+    LOG.info("Voice (AI, %s + %s) heard in %.1fs, answered in %.1fs: %r", timing["engine"],
+             reply_model, heard - started, time.time() - started, transcript)
     return result
 
 
 def _finish_reply(result: dict[str, Any], text: str, local: bool, speak_local: bool,
-                  assistant: dict[str, Any]) -> None:
+                  assistant: dict[str, Any], timing: dict[str, Any] | None = None) -> None:
     """Record the reply for the app and speak it on the selected speaker."""
+    _mark_timing(timing, replied=time.time())
     result["state"] = _state()
     result["at"] = time.time()
     with LAST_AI_LOCK:
@@ -1197,13 +1260,18 @@ def _finish_reply(result: dict[str, Any], text: str, local: bool, speak_local: b
         })
     if text and LOCAL_AUDIO:
         voice = assistant.get("server_voice") or local_audio.DEFAULT_SERVER_VOICE
-        data, audio_mime = LOCAL_AUDIO.synthesize(text, voice)
-        if data:
-            result["audio_b64"] = base64.b64encode(data).decode("ascii")
-            result["audio_mime"] = audio_mime
-            # One speaker at a time: the Pi's or the browser's (Hardware tab).
-            if speak_local and LOCAL_AUDIO.pi_speaker_selected():
-                LOCAL_AUDIO.play(data, audio_mime, text)
+        # One speaker at a time: the Pi's or the browser's (Hardware tab).
+        if LOCAL_AUDIO.pi_speaker_selected():
+            if speak_local:
+                # Starts talking as the voice streams in; the browser plays nothing.
+                LOCAL_AUDIO.speak(text, voice,
+                                  on_start=lambda: _mark_timing(timing, speaking=time.time()))
+        else:
+            data, audio_mime = LOCAL_AUDIO.synthesize(text, voice)
+            if data:
+                result["audio_b64"] = base64.b64encode(data).decode("ascii")
+                result["audio_mime"] = audio_mime
+                _mark_timing(timing, speaking=time.time())
 
 
 def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
@@ -1214,7 +1282,8 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
                  provider: str = "google",
                  model: str = "",
                  ollama_url: str = "",
-                 transcription: str | None = None) -> dict[str, Any]:
+                 transcription: str | None = None,
+                 timing: dict[str, Any] | None = None) -> dict[str, Any]:
     assistant = CONFIG.get("assistant") or {}
     state = _state()
     if audio is not None:
@@ -1251,7 +1320,10 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
         if applied.get("password_required"):
             text = result["text"] = (BURNER_LOCKED_REPLY if applied.get("locked_out")
                                      else BURNER_PASSWORD_REPLY) % applied.get("message")
-    _finish_reply(result, text, local, speak_local, assistant)
+        elif not text or text.startswith("Executing action:"):
+            # The model acted without saying anything; say what was done.
+            text = result["text"] = str(applied.get("message") or "Done.")
+    _finish_reply(result, text, local, speak_local, assistant, timing)
     return result
 
 
@@ -1284,6 +1356,7 @@ def main() -> None:
     LOCAL_CAMERA.pixy.start()
     LOCAL_AUDIO.start()
     _prewarm_voice_async()
+    _prewarm_ai_async()
     BRIDGE.start()
     CONTROLLER.start()
     httpd = ThreadingHTTPServer((HOST, PORT), PoolHandler)

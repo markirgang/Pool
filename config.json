@@ -130,8 +130,8 @@
     "server_voice": "gb-male",
     "rate": 1.02,
     "pitch": 1.06,
-    "stt_model": "gemini-4-argon",
-    "reply_model": "gpt-5.6-luna"
+    "stt_model": "local:tiny.en",
+    "reply_model": "glm-5.3-flash"
   },
   "audio": {
     "local": {

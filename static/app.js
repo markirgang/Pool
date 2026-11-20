@@ -328,6 +328,7 @@
     renderLights();
     renderHeater();
     renderSchedule();
+    renderVoiceTiming();
     renderViz();
     handleRemoteAssistant();
     renderVoiceBubble();
@@ -1572,6 +1573,51 @@
   // ------------------------------------------------------------------
   // Settings
   // ------------------------------------------------------------------
+  function selectValue(id, value) {
+    var sel = $(id);
+    if (!sel || value === undefined || value === null || value === "") return;
+    value = String(value);
+    if (!Array.from(sel.options).some(function (o) { return o.value === value; })) {
+      var opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = value;
+      sel.appendChild(opt);
+    }
+    sel.value = value;
+  }
+
+  function loadSpeedSettings() {
+    var assistant = config.assistant || {};
+    var cam = (config.camera && config.camera.local) || {};
+    selectValue("sttModel", assistant.stt_model || "local:tiny.en");
+    selectValue("replyModel", assistant.reply_model || "glm-5.3-flash");
+    selectValue("streamSize", cam.stream_size || "480x270");
+    selectValue("streamFps", cam.stream_fps || 10);
+  }
+
+  function saveSpeedSetting(body, label) {
+    return api("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (res && res.config) config = res.config;
+      toast(label + " saved", "good");
+    }).catch(function (err) { toast("Could not save: " + err.message, "error"); });
+  }
+
+  function renderVoiceTiming() {
+    var el = $("voiceTimingText");
+    var t = state.voice_timing || {};
+    if (!el || !t.at) return;
+    var parts = [];
+    if (t.heard_s !== undefined) parts.push("heard in " + t.heard_s.toFixed(1) + " s (" + (t.engine || "") + ")");
+    if (t.answered_s !== undefined) parts.push("answered at " + t.answered_s.toFixed(1) + " s" + (t.path === "AI" ? " (" + (t.reply_model || "AI") + ")" : " (instant command)"));
+    if (t.speaking_s !== undefined) parts.push("speaking at " + t.speaking_s.toFixed(1) + " s");
+    var when = new Date(t.at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    el.textContent = "Last voice request (" + when + (t.transcript ? ", \u201C" + t.transcript + "\u201D" : "") + "): " + parts.join(" \u00B7 ");
+  }
+
   async function loadConfig() {
     try {
       config = await api("/api/config");
@@ -1591,6 +1637,8 @@
       if (pi.local_ip) piParts.push(pi.local_ip + ":" + (pi.port || 2490));
       if (pi.public_url) piParts.push(pi.public_url);
       $("piAddress").textContent = piParts.length ? "Raspberry Pi: " + piParts.join(" \u00B7 ") : "Raspberry Pi address unavailable";
+
+      loadSpeedSettings();
 
       var ai = config.ai || {};
       $("aiProvider").value = ai.provider || "auto";
@@ -3731,6 +3779,18 @@
     $("scheduleRuns").addEventListener("input", function () { scheduleDirty = true; });
     $("scheduleRuns").addEventListener("change", function () { scheduleDirty = true; });
     $("scheduleEnabled").addEventListener("change", function () { scheduleDirty = true; });
+    $("sttModel").addEventListener("change", function (e) {
+      saveSpeedSetting({ assistant: { stt_model: e.target.value } }, "Speech recognition");
+    });
+    $("replyModel").addEventListener("change", function (e) {
+      saveSpeedSetting({ assistant: { reply_model: e.target.value } }, "Reply model");
+    });
+    $("streamSize").addEventListener("change", function (e) {
+      saveSpeedSetting({ camera: { local: { stream_size: e.target.value } } }, "Live video size");
+    });
+    $("streamFps").addEventListener("change", function (e) {
+      saveSpeedSetting({ camera: { local: { stream_fps: parseInt(e.target.value, 10) } } }, "Live video frame rate");
+    });
     $("jetExerciseEnabled").addEventListener("change", function (e) {
       command("set_jet_exercise", { enabled: e.target.checked });
     });

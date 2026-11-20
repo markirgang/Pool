@@ -152,6 +152,12 @@ class CameraStream:
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
+    def restart(self) -> None:
+        """Stop ffmpeg; the next viewer starts it again with the new settings."""
+        proc = self._proc
+        if proc and proc.poll() is None:
+            proc.terminate()
+
     def ensure(self) -> bool:
         with self._lock:
             self._wanted_at = time.time()
@@ -250,6 +256,9 @@ class LocalCamera:
         self._active_device = ""
         self.pixy = PixyController(config)
         self.stream = CameraStream(self)
+        cfg = self._cfg()
+        self._stream_settings = (cfg.get("stream_size"), cfg.get("stream_fps"),
+                                 cfg.get("stream_quality"))
 
     def _cfg(self) -> dict[str, Any]:
         return (self.config.get("camera") or {}).get("local") or {}
@@ -257,6 +266,12 @@ class LocalCamera:
     def reconfigure(self) -> None:
         self._last_error = ""
         self.pixy.reapply()
+        # Live video size/frame rate apply when ffmpeg starts, so restart it.
+        cfg = self._cfg()
+        wanted = (cfg.get("stream_size"), cfg.get("stream_fps"), cfg.get("stream_quality"))
+        if wanted != getattr(self, "_stream_settings", wanted):
+            self.stream.restart()
+        self._stream_settings = wanted
 
     def _name_for(self, device: str) -> str:
         name_file = "/sys/class/video4linux/%s/name" % os.path.basename(device)
