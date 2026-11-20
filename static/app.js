@@ -162,11 +162,16 @@
     });
   }
 
-  function askBurnerPassword() {
+  function askBurnerPassword(opts) {
+    opts = opts || {};
     return new Promise(function (resolve) {
       var modal = $("burnerPasswordModal");
       var input = $("burnerPasswordInput");
       if (!modal || !input) { resolve(window.prompt("Burner password") || null); return; }
+      $("burnerPasswordText").textContent = opts.text ||
+        "Enter the burner password to light the firebasket burners.";
+      $("burnerPasswordError").textContent = opts.error || "";
+      $("burnerPasswordCancel").textContent = opts.cancelLabel || "Cancel";
       input.value = "";
       modal.style.display = "grid";
       setTimeout(function () { input.focus(); }, 30);
@@ -183,6 +188,42 @@
     });
   }
 
+  // Ask for the burner password (retrying on a wrong one). For "all on" the
+  // other water features are already running, so skipping leaves them on.
+  async function lightBurnersWithPassword(action, payload, first) {
+    var allOn = action === "set_all_features";
+    var opts = allOn ? {
+      text: "The other water features are on. Enter the burner password to light the burners too, or skip them.",
+      cancelLabel: "Skip Burners"
+    } : {};
+    var result = first;
+    while (true) {
+      if (result.locked_out) break;
+      var password = await askBurnerPassword(opts);
+      if (!password) {
+        toast(allOn ? "Water features on; burners left off" : "Burners left off", allOn ? "good" : "info");
+        return result;
+      }
+      result = await api("/api/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // "All on" already started everything else; just light the burners.
+        body: JSON.stringify(allOn
+          ? { action: "set_firebasket", payload: { id: "east", on: true, password: password } }
+          : { action: action, payload: Object.assign({}, payload, { password: password }) })
+      });
+      if (result && result.state) { state = result.state; render(); }
+      if (!result || !result.password_required) break;
+      opts = Object.assign({}, opts, { error: result.message + ". Try again" + (allOn ? " or skip the burners." : ".") });
+    }
+    if (result && result.message) {
+      var msg = result.message;
+      if (allOn && result.password_required) msg = "Water features on; burners left off. " + msg;
+      toast(msg, result.ok ? "good" : "error");
+    }
+    return result;
+  }
+
   async function command(action, payload) {
     try {
       var result = await api("/api/command", {
@@ -192,14 +233,7 @@
       });
       if (result && result.password_required && !(payload && payload.password)) {
         if (result.state) { state = result.state; render(); }
-        if (result.ok) toast(result.message, "good");
-        var password = await askBurnerPassword();
-        if (!password) return result;
-        // "All on" already started everything else; just light the burners.
-        if (action === "set_all_features") {
-          return command("set_firebasket", { id: "east", on: true, password: password });
-        }
-        return command(action, Object.assign({}, payload, { password: password }));
+        return lightBurnersWithPassword(action, payload, result);
       }
       if (result && result.state) {
         state = result.state;

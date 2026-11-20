@@ -146,6 +146,10 @@ def burner_password_set(config: dict[str, Any]) -> bool:
     return bool(_auth_cfg(config).get("burner_password_hash"))
 
 
+def burner_locked_out() -> bool:
+    return locked_out("burner-password")
+
+
 def check_burner_password(config: dict[str, Any], password: Any) -> bool:
     """True if ``password`` unlocks the firebasket burners (or none is set).
 

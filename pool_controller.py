@@ -712,7 +712,7 @@ class PoolController:
         lighting = on is True or str((params or {}).get("STATUS", "")).upper() == "ON"
         if lighting and objnam in self._burner_relays() \
                 and not auth.check_burner_password(self.config, password):
-            return self._burner_password_result()
+            return self._burner_password_result(password)
 
         ok, msg = self.bridge.set_device_state(
             objnam, on=on, speed=speed, effect=effect, setpoint=setpoint, params=params
@@ -1032,7 +1032,7 @@ class PoolController:
         basket = basket if basket in FIREBASKET_LABELS else "east"
         if on and not self.state_data["firebaskets"][basket].get("on") \
                 and not auth.check_burner_password(self.config, password):
-            return self._burner_password_result()
+            return self._burner_password_result(password)
         with self.lock:
             state = self.state_data["firebaskets"][basket]
             if water is not None:
@@ -1112,9 +1112,11 @@ class PoolController:
             self._ensure_features_pump(changes)
         ok, msg = self._send(changes, "all_features_%s" % ("on" if on else "off"))
         if on and not burners:
-            result = self._result(ok, "All water features on except the burners, "
-                                      "which need the burner password", msg)
+            why = self._burner_password_problem(password)
+            result = self._result(ok, "All water features on except the burners. %s" % why, msg)
             result["password_required"] = True
+            result["password_wrong"] = bool(password)
+            result["locked_out"] = auth.burner_locked_out()
             return result
         return self._result(ok, "All water features %s" % ("on" if on else "off"), msg)
 
@@ -1122,9 +1124,19 @@ class PoolController:
         return {spec["burner"] for spec in (self.bridge.resolved().get("firebaskets") or {}).values()
                 if spec.get("burner")}
 
-    def _burner_password_result(self) -> dict[str, Any]:
-        result = self._result(False, "The burners need the burner password")
+    @staticmethod
+    def _burner_password_problem(password: str | None) -> str:
+        if auth.burner_locked_out():
+            return "Too many wrong burner passwords; wait a minute and try again"
+        if password:
+            return "Wrong burner password; the burners stay off"
+        return "The burners need the burner password"
+
+    def _burner_password_result(self, password: str | None = None) -> dict[str, Any]:
+        result = self._result(False, self._burner_password_problem(password))
         result["password_required"] = True
+        result["password_wrong"] = bool(password)
+        result["locked_out"] = auth.burner_locked_out()
         return result
 
     def set_blower(self, on: bool) -> dict[str, Any]:

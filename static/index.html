@@ -2802,12 +2802,13 @@ sudo systemctl enable --now cloudflared</code></pre>
         <button class="modal-close" id="burnerPasswordCancelX" type="button">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="muted">Enter the burner password to light the firebasket burners.</p>
+        <p class="muted" id="burnerPasswordText">Enter the burner password to light the firebasket burners.</p>
         <div class="form-grid login-grid">
           <label>Password
             <input type="password" id="burnerPasswordInput" autocomplete="off" required>
           </label>
         </div>
+        <div class="login-error" id="burnerPasswordError"></div>
       </div>
       <div class="modal-foot">
         <button class="btn ghost" id="burnerPasswordCancel" type="button">Cancel</button>
@@ -2932,7 +2933,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=31"></script>
+  <script src="app.js?v=32"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>
