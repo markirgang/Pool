@@ -2787,10 +2787,10 @@
     var mainOn = !!mainP.on;
     var mainRpm = parseInt(mainP.rpm || 2200, 10);
     var featOn = !!featP.on;
-    var featRpm = parseInt(featP.rpm || 2800, 10);
+    var featRpm = parseInt(featP.rpm || 2050, 10);
     var heaterOn = !!heater.on;
     var blowerOn = !!blower.on;
-    var anyFeaturesOn = Object.values(jets).some(function (j) { return j.on; }) || Object.values(baskets).some(function (b) { return b.on; });
+    var anyFeaturesOn = Object.values(jets).some(function (j) { return j.on; }) || Object.values(baskets).some(function (b) { return b.water || b.spa_water; });
 
     // Update Status Bar
     if ($("logicModeBadge")) {
@@ -2834,7 +2834,7 @@
         $("pillGateHeater").style.background = "rgba(239,68,68,0.2)";
         $("pillGateHeater").style.color = "#ef4444";
       } else if (heaterOn && flowOk) {
-        $("pillGateHeater").textContent = "FIRING (HEATING ACTIVE)";
+        $("pillGateHeater").textContent = "HEATING";
         $("pillGateHeater").style.background = "rgba(245,158,11,0.25)";
         $("pillGateHeater").style.color = "#f59e0b";
       } else {
@@ -2857,7 +2857,7 @@
 
     // Gate 4: Features Pump Interlock
     if ($("pillGateFeatures")) {
-      $("pillGateFeatures").textContent = anyFeaturesOn ? "ACTIVE (2800 RPM)" : "IDLE (0 ON)";
+      $("pillGateFeatures").textContent = anyFeaturesOn ? ("ACTIVE (" + featRpm + " RPM)") : "IDLE (0 ON)";
       $("pillGateFeatures").style.background = anyFeaturesOn ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)";
       $("pillGateFeatures").style.color = anyFeaturesOn ? "#10b981" : "#8ab";
     }
@@ -2866,17 +2866,17 @@
     if ($("valLogicPoolTemp")) $("valLogicPoolTemp").textContent = poolTemp ? (poolTemp + "°F") : "84°F (Set: 84°F)";
     if ($("valLogicSpaTemp")) $("valLogicSpaTemp").textContent = spaTemp ? (spaTemp + "°F") : "102°F (Set: 102°F)";
     if ($("valLogicFlow")) $("valLogicFlow").textContent = flowOk ? ("FLOW OK (" + mainRpm + " RPM >= 1500)") : "FLOW LOW (< 1500 RPM)";
-    if ($("valLogicSalt")) $("valLogicSalt").textContent = (chem.salt || 3200) + " PPM (OPTIMAL: 2800-3600)";
+    if ($("valLogicSalt")) $("valLogicSalt").textContent = chem.salt ? (chem.salt + " PPM (target 3200)") : "--";
     var activeRunName = (state && state.schedule && state.schedule.active_run) || "Main VSR daytime";
     if ($("valLogicSchedule")) $("valLogicSchedule").textContent = "Active: " + activeRunName;
 
     // Actuators
     if ($("valActuatorSuction")) $("valActuatorSuction").textContent = isSpa ? "100% Spa Drain" : "80% Pool / 20% Spa";
     if ($("valActuatorReturn")) $("valActuatorReturn").textContent = isSpa ? "100% Spa Return Jets" : "80% Spa (Spillway) / 20% Pool";
-    if ($("valActuatorMainPump")) $("valActuatorMainPump").textContent = mainOn ? (mainRpm + " RPM • " + Math.round(mainRpm * 0.02) + " GPM • " + Math.round(mainRpm * 0.22) + "W") : "STOPPED (0 RPM)";
+    if ($("valActuatorMainPump")) $("valActuatorMainPump").textContent = mainOn ? (mainRpm + " RPM • RUNNING") : "STOPPED (0 RPM)";
     if ($("valActuatorFeatPump")) $("valActuatorFeatPump").textContent = featOn ? (featRpm + " RPM • ACTIVE") : "OFF (0 RPM)";
     if ($("valActuatorHeater")) $("valActuatorHeater").textContent = heaterOn ? "ON" : "OFF";
-    if ($("valActuatorChlor")) $("valActuatorChlor").textContent = mainOn ? "Generating Sanitizer @ 60%" : "Standby (Awaiting Pump Flow)";
+    if ($("valActuatorChlor")) $("valActuatorChlor").textContent = mainOn ? "Running with pump flow" : "Standby (no pump flow)";
   }
 
   function initPoolLogicVisualization() {

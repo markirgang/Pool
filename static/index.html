@@ -1123,7 +1123,7 @@
                 </div>
                 <div class="logic-node" id="nodeSensorSalt">
                   <div class="logic-node-title">IntelliChlor Salinity</div>
-                  <div class="logic-node-val" id="valLogicSalt">3200 PPM (OPTIMAL)</div>
+                  <div class="logic-node-val" id="valLogicSalt">--</div>
                 </div>
                 <div class="logic-node" id="nodeSensorSchedule">
                   <div class="logic-node-title">Scheduler Clock Window</div>
@@ -1151,7 +1151,7 @@
                     <span class="logic-gate-name">[GATE 2] Heater Flow Interlock</span>
                     <span class="logic-gate-pill" id="pillGateHeater">SAFE (READY)</span>
                   </div>
-                  <div class="logic-gate-desc" id="descGateHeater">Fireman switch permits heater fire only when Main Pump RPM >= 1500 and flow switch is closed.</div>
+                  <div class="logic-gate-desc" id="descGateHeater">The heater (AUX 4) should only run while the main pump is moving water (at least 1500 RPM), so the heat pump&rsquo;s flow switch stays closed.</div>
                 </div>
                 <div class="logic-gate" id="gateBlower">
                   <div class="logic-gate-header">
@@ -1165,14 +1165,14 @@
                     <span class="logic-gate-name">[GATE 4] Features Pump Interlock</span>
                     <span class="logic-gate-pill" id="pillGateFeatures">IDLE (0 ON)</span>
                   </div>
-                  <div class="logic-gate-desc" id="descGateFeatures">Features pump held at 0 RPM to prevent dry-running until at least 1 deck jet or firebasket opens.</div>
+                  <div class="logic-gate-desc" id="descGateFeatures">The features VS pump stays off until a floor jet or spillway turns on (the burners do not need it). It then runs at that feature&rsquo;s speed: 1750 RPM floor jets, 1750&ndash;2050 RPM spillways.</div>
                 </div>
                 <div class="logic-gate" id="gateFreeze">
                   <div class="logic-gate-header">
                     <span class="logic-gate-name">[GATE 5] Freeze Protection</span>
-                    <span class="logic-gate-pill" id="pillGateFreeze">NORMAL (78°F)</span>
+                    <span class="logic-gate-pill" id="pillGateFreeze">PANEL-MANAGED</span>
                   </div>
-                  <div class="logic-gate-desc" id="descGateFreeze">If ambient temperature drops &lt;= 36°F, anti-freeze circulation overrides schedule automatically.</div>
+                  <div class="logic-gate-desc" id="descGateFreeze">Handled by the IntelliCenter&rsquo;s own freeze protection, which runs the pumps in freezing weather regardless of the app&rsquo;s schedule.</div>
                 </div>
               </div>
             </div>
@@ -1185,28 +1185,28 @@
               </div>
               <div style="display:flex; flex-direction:column; gap:8px;">
                 <div class="logic-node" id="nodeActuatorSuction">
-                  <div class="logic-node-title">Suction Valve (V1001)</div>
+                  <div class="logic-node-title">Intake Valve (VAL03)</div>
                   <div class="logic-node-val" id="valActuatorSuction">80% Pool / 20% Spa</div>
                 </div>
                 <div class="logic-node" id="nodeActuatorReturn">
-                  <div class="logic-node-title">Return Valve (V1002)</div>
+                  <div class="logic-node-title">Return Valve (VAL04)</div>
                   <div class="logic-node-val" id="valActuatorReturn">80% Spa (Spillway) / 20% Pool</div>
                 </div>
                 <div class="logic-node" id="nodeActuatorMainPump">
-                  <div class="logic-node-title">Main VSR Pump (P1001)</div>
-                  <div class="logic-node-val" id="valActuatorMainPump" style="color:#10b981;">2200 RPM &bull; 45 GPM &bull; 480W</div>
+                  <div class="logic-node-title">Main VSF Pump (PMP02)</div>
+                  <div class="logic-node-val" id="valActuatorMainPump" style="color:#10b981;">--</div>
                 </div>
                 <div class="logic-node" id="nodeActuatorFeatPump">
-                  <div class="logic-node-title">Features VSR Pump (P1002)</div>
+                  <div class="logic-node-title">Features VS Pump (PMP01)</div>
                   <div class="logic-node-val" id="valActuatorFeatPump">0 RPM (OFF)</div>
                 </div>
                 <div class="logic-node" id="nodeActuatorHeater">
-                  <div class="logic-node-title">Gas Pool Heater (H1001)</div>
+                  <div class="logic-node-title">Heater (AUX 4 Relay)</div>
                   <div class="logic-node-val" id="valActuatorHeater">OFF</div>
                 </div>
                 <div class="logic-node" id="nodeActuatorChlor">
-                  <div class="logic-node-title">IntelliChlor SCG (CH101)</div>
-                  <div class="logic-node-val" id="valActuatorChlor" style="color:var(--cyan);">Generating @ 60%</div>
+                  <div class="logic-node-title">IntelliChlor 1 (CHR01)</div>
+                  <div class="logic-node-val" id="valActuatorChlor" style="color:var(--cyan);">--</div>
                 </div>
               </div>
             </div>
@@ -1501,159 +1501,150 @@
             <span class="manual-sec-num">03</span>
             <div>
               <h3>IntelliCenter Equipment, Relays &amp; Circuit Controls</h3>
-              <p class="muted">Comprehensive reference for all controlled loads, relay assignments, and operational parameters.</p>
+              <p class="muted">What every relay, feature, pump and valve on the Lighthouse Pool IntelliCenter does, and how the app uses it.</p>
             </div>
           </div>
           <div class="manual-body-text">
-            <p>All connected hardware is managed through the <strong>IntelliCenter</strong> tab. Each card exposes real-time state, speed sliders, effect pickers, and edit controls.</p>
+            <p>These tables were taken from the live IntelliCenter panel on November 19, 2026. If equipment is added or renamed later, the <strong>IntelliCenter</strong> tab&rsquo;s <em>Equipment &amp; Wiring</em> report always shows the panel&rsquo;s current setup. The panel only knows what each relay is <em>assigned</em> to; it cannot see what is physically wired to it.</p>
 
+            <h4 style="margin-top: 14px;">Relays (AUX Outputs)</h4>
             <div class="manual-table-wrap">
               <table class="manual-table">
                 <thead>
                   <tr>
-                    <th>Equipment Name</th>
-                    <th>Type / Subtype</th>
-                    <th>Default ID</th>
-                    <th>Relay / Bus Channel</th>
-                    <th>Operational Parameters</th>
+                    <th>Relay</th>
+                    <th>Circuit</th>
+                    <th>Panel Name</th>
+                    <th>What It Controls</th>
+                    <th>How the App Uses It</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td><strong>Pool Mode Circuit</strong></td>
-                    <td>CIRCUIT / GENERIC</td>
-                    <td><code>C0001</code></td>
-                    <td>Internal Mode Logic</td>
-                    <td>Sets suction/return valves to Pool circulation; starts Main Pump.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Spa Mode Circuit</strong></td>
-                    <td>CIRCUIT / GENERIC</td>
-                    <td><code>C0002</code></td>
-                    <td>Internal Mode Logic</td>
-                    <td>Isolates spa suction/return; engages heater thermostat to 102°F.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Main Circulation VSR</strong></td>
-                    <td>PUMP / VS</td>
-                    <td><code>P1001</code></td>
-                    <td>RS-485 COM1 (Addr 1)</td>
-                    <td>Pentair IntelliFlo VSF. Speed range: 450–3450 RPM (Default: 2200 RPM).</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Features VSR Pump</strong></td>
-                    <td>PUMP / VS</td>
-                    <td><code>P1002</code></td>
-                    <td>RS-485 COM1 (Addr 2)</td>
-                    <td>Dedicated water features pump. Starts automatically with any feature (Default: 2800 RPM).</td>
-                  </tr>
-                  <tr>
-                    <td><strong>NE Floor Jet</strong></td>
-                    <td>CIRCUIT / MAGIC2</td>
-                    <td><code>C0003</code></td>
-                    <td>Relay 3 (Aux 2)</td>
-                    <td>Northeast laminar deck jet. Activates water arc, LED illumination, and thumper.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>NW Floor Jet</strong></td>
-                    <td>CIRCUIT / MAGIC2</td>
-                    <td><code>C0004</code></td>
-                    <td>Relay 4 (Aux 3)</td>
-                    <td>Northwest laminar deck jet. Arc water stream across pool basin.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>SE Floor Jet</strong></td>
-                    <td>CIRCUIT / MAGIC2</td>
-                    <td><code>C0005</code></td>
-                    <td>Relay 5 (Aux 4)</td>
-                    <td>Southeast laminar deck jet. Parallel trajectory arc.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>SW Floor Jet</strong></td>
-                    <td>CIRCUIT / MAGIC2</td>
+                    <td><strong>Pool</strong></td>
                     <td><code>C0006</code></td>
-                    <td>Relay 6 (Aux 5)</td>
-                    <td>Southwest laminar deck jet. Full water arc presentation.</td>
+                    <td>Pool</td>
+                    <td>Pool body circuit (pool mode).</td>
+                    <td>Pool mode. Runs the main VSF pump at 3350 RPM.</td>
                   </tr>
                   <tr>
-                    <td><strong>East Firepit Pool Spillway</strong></td>
-                    <td>CIRCUIT / GENERIC</td>
+                    <td><strong>Spa</strong></td>
+                    <td><code>C0001</code></td>
+                    <td>Spa</td>
+                    <td>Spa body circuit (spa mode).</td>
+                    <td>Spa mode. Runs the main VSF pump at 3050 RPM; the intake and return valves turn to the spa automatically.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>AUX 1</strong></td>
+                    <td><code>C0002</code></td>
+                    <td>Burner Lights</td>
+                    <td>LED strips under both firebasket burners (one relay for both).</td>
+                    <td>Burner Lights switch on each firepit card, Iggy (&ldquo;turn on the burner lights&rdquo;) and All On / All Off. Also on a button of both iS4 spa-side remotes.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>AUX 2</strong></td>
+                    <td><code>C0003</code></td>
+                    <td>Blower</td>
+                    <td>Spa air blower.</td>
+                    <td>Blower switch, Iggy, Alexa, All On / All Off. Also on the iS4 remotes.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>AUX 3</strong></td>
+                    <td><code>C0004</code></td>
+                    <td>Lights</td>
+                    <td>IntelliBrite color LED lights (pool and spa share this one circuit).</td>
+                    <td>Pool and spa light switches and color shows (default steady blue). Also on the iS4 remotes.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>AUX 4</strong></td>
+                    <td><code>C0005</code></td>
+                    <td>Heater</td>
+                    <td>Heater on/off relay.</td>
+                    <td>Heater switch. Switched on and off only; the app does not set a temperature through this relay.</td>
+                  </tr>
+                  <tr>
+                    <td><strong>AUX 5</strong></td>
                     <td><code>C0007</code></td>
-                    <td>Relay 7 (Aux 6)</td>
-                    <td>East architectural firebasket weir flow discharging into primary pool.</td>
+                    <td>Burners</td>
+                    <td>Both firebasket burners (12 VAC to the burner controllers; ignition and propane are automatic).</td>
+                    <td>Flame switch, Iggy, All On / All Off. <strong>Lighting needs the burner password</strong>; turning off never does. Never turned on by the spillways.</td>
                   </tr>
                   <tr>
-                    <td><strong>East Firepit Spa Spillway</strong></td>
-                    <td>CIRCUIT / GENERIC</td>
+                    <td><strong>AUX 6</strong></td>
                     <td><code>C0008</code></td>
-                    <td>Relay 8 (Aux 7)</td>
-                    <td>East architectural firebasket weir flow discharging into spa.</td>
+                    <td>Spa Spillway</td>
+                    <td>Spa spillway lights on both firebaskets.</td>
+                    <td>Automatic: on whenever Spa Fountain E or W is on, off when both are off.</td>
                   </tr>
                   <tr>
-                    <td><strong>West Firepit Pool Spillway</strong></td>
-                    <td>CIRCUIT / GENERIC</td>
+                    <td><strong>AUX 7</strong></td>
                     <td><code>C0009</code></td>
-                    <td>Relay 9 (Aux 8)</td>
-                    <td>West architectural firebasket weir flow discharging into primary pool.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>West Firepit Spa Spillway</strong></td>
-                    <td>CIRCUIT / GENERIC</td>
-                    <td><code>C0010</code></td>
-                    <td>Relay 10 (Aux 9)</td>
-                    <td>West architectural firebasket weir flow discharging into spa.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Spa Air Blower</strong></td>
-                    <td>CIRCUIT / GENERIC</td>
-                    <td><code>C0011</code></td>
-                    <td>Relay 11 (Aux 10)</td>
-                    <td>2.0 HP air injector blower for hydrotherapy bubbling and foam generation.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Pool Underwater LED</strong></td>
-                    <td>CIRCUIT / INTELLI</td>
-                    <td><code>C0012</code></td>
-                    <td>Relay 1 (Aux 1)</td>
-                    <td>Pentair IntelliBrite 5G color LED. 12 color programs &amp; fixed hues.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Spa Underwater LED</strong></td>
-                    <td>CIRCUIT / INTELLI</td>
-                    <td><code>C0013</code></td>
-                    <td>Relay 2 (Light)</td>
-                    <td>Pentair GloBrite / IntelliBrite compact color LED for spa basin.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Gas Pool Heater</strong></td>
-                    <td>HEATER / GAS</td>
-                    <td><code>H1001</code></td>
-                    <td>Fireman Switch Terminal</td>
-                    <td>Pentair MasterTemp 400K BTU gas heater. Thermostat range: 40°F–104°F.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>IntelliChlor SCG</strong></td>
-                    <td>CHEM / CHLOR</td>
-                    <td><code>CH101</code></td>
-                    <td>RS-485 COM2</td>
-                    <td>Salt Chlorine Generator cell. Real-time PPM monitoring and output % control.</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Pool/Spa Drain Valve</strong></td>
-                    <td>VALVE / VALVE</td>
-                    <td><code>V1001</code></td>
-                    <td>Valve Socket A</td>
-                    <td>Intake 3-way motorized actuator (Compool CVA-24).</td>
-                  </tr>
-                  <tr>
-                    <td><strong>Pool/Spa Return Valve</strong></td>
-                    <td>VALVE / VALVE</td>
-                    <td><code>V1002</code></td>
-                    <td>Valve Socket B</td>
-                    <td>Return 3-way motorized actuator (Compool CVA-24).</td>
+                    <td>Pool Spillway</td>
+                    <td>Pool spillway lights on both firebaskets.</td>
+                    <td>Automatic: on whenever Pool Fountain E or W is on, off when both are off.</td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <h4 style="margin-top: 18px;">Water Features (Valve-Driven, No Relay)</h4>
+            <p>Each water feature is a panel feature circuit. Turning it on opens its own valve actuator and runs the features VS pump at the speed shown. The app turns the features pump on whenever any of them is running.</p>
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>Circuit</th>
+                    <th>Valve Actuator</th>
+                    <th>Features Pump Speed</th>
+                    <th>In the App</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><strong>NE Floor Jet</strong></td><td><code>FTR02</code></td><td><code>VAL09</code></td><td>1750 RPM</td><td>NE deck laminar jet</td></tr>
+                  <tr><td><strong>NW Floor Jet</strong></td><td><code>FTR06</code></td><td><code>VAL01</code></td><td>1750 RPM</td><td>NW deck laminar jet</td></tr>
+                  <tr><td><strong>SE Floor Jet</strong></td><td><code>FTR04</code></td><td><code>VAL11</code></td><td>1750 RPM</td><td>SE deck laminar jet</td></tr>
+                  <tr><td><strong>SW Floor Jet</strong></td><td><code>FTR07</code></td><td><code>VAL02</code></td><td>1750 RPM</td><td>SW deck laminar jet</td></tr>
+                  <tr><td><strong>Pool Fountain E</strong></td><td><code>FTR05</code></td><td><code>VAL07</code></td><td>2050 RPM</td><td>East firepit pool spillway (turns on AUX 7 lights)</td></tr>
+                  <tr><td><strong>Spa Fountain E</strong></td><td><code>FTR08</code></td><td><code>VAL12</code></td><td>2050 RPM</td><td>East firepit spa spillway (turns on AUX 6 lights)</td></tr>
+                  <tr><td><strong>Pool Fountain W</strong></td><td><code>FTR03</code></td><td><code>VAL10</code></td><td>2050 RPM</td><td>West firepit pool spillway (turns on AUX 7 lights)</td></tr>
+                  <tr><td><strong>Spa Fountain W</strong></td><td><code>FTR01</code></td><td><code>VAL08</code></td><td>1750 RPM</td><td>West firepit spa spillway (turns on AUX 6 lights)</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h4 style="margin-top: 18px;">Pumps, Valves, Heating &amp; Other Equipment</h4>
+            <div class="manual-table-wrap">
+              <table class="manual-table">
+                <thead>
+                  <tr>
+                    <th>Equipment</th>
+                    <th>Panel ID</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><strong>Main pump (&ldquo;VSF&rdquo;)</strong></td><td><code>PMP02</code></td><td>Variable speed and flow, 450&ndash;3450 RPM. Pool program <code>p0201</code> at 3350 RPM, spa program <code>p0202</code> at 3050 RPM. The app&rsquo;s daytime schedule runs it 8:00&ndash;18:00.</td></tr>
+                  <tr><td><strong>Features pump (&ldquo;VS&rdquo;)</strong></td><td><code>PMP01</code></td><td>Variable speed, 450&ndash;3000 RPM. Runs for the water features above, at each feature&rsquo;s own speed.</td></tr>
+                  <tr><td><strong>Intake valve</strong></td><td><code>VAL03</code></td><td>Pool/spa intake (suction) actuator. Moved automatically by the IntelliCenter for pool or spa mode.</td></tr>
+                  <tr><td><strong>Return valve</strong></td><td><code>VAL04</code></td><td>Pool/spa return actuator. Moved automatically by the IntelliCenter for pool or spa mode.</td></tr>
+                  <tr><td><strong>Heat Pump</strong></td><td><code>H0001</code></td><td>Heater set up on the panel for both the pool and spa. Heating set points on the panel: pool 84&deg;F, spa 89&deg;F.</td></tr>
+                  <tr><td><strong>IntelliChlor 1</strong></td><td><code>CHR01</code></td><td>Salt chlorine generator for the pool and spa. Reports the salt level shown in the app (target 3200 ppm).</td></tr>
+                  <tr><td><strong>iS4 #1 and #2</strong></td><td><code>REM01</code>, <code>REM02</code></td><td>Spa-side remotes. Buttons: Spa, AUX 1 (Burner Lights), Blower, Lights.</td></tr>
+                  <tr><td><strong>Covers 1 and 2</strong></td><td><code>CVR01</code>, <code>CVR02</code></td><td>Cover inputs for the pool and spa.</td></tr>
+                  <tr><td><strong>Sensors</strong></td><td><code>SSW11</code>, <code>SSS11</code></td><td>Water temperature sensor and solar sensor.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="manual-callout info" style="margin-top: 18px;">
+              <h4 style="margin: 0 0 8px 0; font-size: 0.95rem;">🔥 Firebasket Relays Are Shared</h4>
+              <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; line-height: 1.6;">
+                <li>The east and west firebaskets share AUX 5 (burners), AUX 1 (burner lights), AUX 6 (spa spillway lights) and AUX 7 (pool spillway lights). Switching either firepit&rsquo;s Flame or Burner Lights switches both.</li>
+                <li>Only the spillways are separate for each firepit (Pool/Spa Fountain E and W).</li>
+                <li>The burner password is checked by the pool app. The IntelliCenter&rsquo;s own screen and Pentair&rsquo;s app can still light the burners without it.</li>
+                <li>Change the burner password from a terminal on the Pi: <code>.venv/bin/python auth.py burner</code></li>
+              </ul>
             </div>
 
             <div class="manual-callout good" style="margin-top: 18px;">
@@ -2283,15 +2274,15 @@ systemctl --user restart pool.service</code></pre>
                   </tr>
                   <tr>
                     <td><strong>Water feature activates but no water flows</strong></td>
-                    <td>Features VSR pump is de-energized or suction valve closed.</td>
-                    <td>Check Features VSR card; verify RPM is set to at least 2600.</td>
-                    <td>The system starts the Features pump automatically; check strainer basket for debris.</td>
+                    <td>Features VS pump not running, or the feature&rsquo;s valve actuator did not open.</td>
+                    <td>Check the Features pump card is running at the feature&rsquo;s speed (1750 RPM floor jets, 1750&ndash;2050 RPM fountains); check the feature&rsquo;s valve on the IntelliCenter tab (see Section 3).</td>
+                    <td>The system starts the Features pump automatically; check the strainer basket for debris and listen for the valve actuator moving.</td>
                   </tr>
                   <tr>
-                    <td><strong>Heater icon shows "FIRING" but water is cold</strong></td>
-                    <td>MasterTemp gas heater in ignition lockout or gas supply valve shut.</td>
-                    <td>Check physical heater display for error codes (e.g. <code>SVO</code> or <code>IGN</code>).</td>
-                    <td>Verify gas valve is open; ensure pump flow exceeds heater minimum 40 GPM switch threshold.</td>
+                    <td><strong>Heater shows on but water is cold</strong></td>
+                    <td>The heat pump is in a fault or waiting on flow, or the AUX 4 &ldquo;Heater&rdquo; relay is on but the heater itself is not running.</td>
+                    <td>Check the heat pump&rsquo;s own display for error codes; confirm the AUX 4 Heater relay is on in the IntelliCenter tab.</td>
+                    <td>Make sure the main pump is running so the heat pump&rsquo;s flow switch closes; heat pumps warm water slowly, especially in cool air.</td>
                   </tr>
                   <tr>
                     <td><strong>Deck jet arcs look weak or intermittent</strong></td>
@@ -2916,7 +2907,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=28"></script>
+  <script src="app.js?v=29"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>
