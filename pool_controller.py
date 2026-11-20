@@ -1189,6 +1189,11 @@ class PoolController:
                 state["on"] = bool(on)
             resolved = self.bridge.resolved()
             target = resolved.get("lights", {}).get(body)
+            # Pool and spa lights on one relay switch together.
+            shared = [b for b, t in (resolved.get("lights") or {}).items()
+                      if t and t == target and b != body and b in self.state_data["lights"]]
+            for other in shared:
+                self.state_data["lights"][other].update({"on": state["on"], "effect": state["effect"]})
             changes: dict[str, dict[str, Any]] = {}
             if target:
                 params = {"STATUS": "ON" if state["on"] else "OFF"}
@@ -1197,8 +1202,9 @@ class PoolController:
                 changes[target] = params
         name = LIGHT_EFFECTS.get(state["effect"], state["effect"])
         ok, msg = self._send(changes, "light_%s" % body)
-        return self._result(ok, "%s light %s" % (
-            body.capitalize(), "on - " + name if state["on"] else "off"), msg)
+        label = "Pool and spa lights" if shared else "%s light" % body.capitalize()
+        return self._result(ok, "%s %s" % (
+            label, "on - " + name if state["on"] else "off"), msg)
 
     def set_all_lights(self, on: bool | None = True,
                        effect: str | None = None) -> dict[str, Any]:

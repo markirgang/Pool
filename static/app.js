@@ -3672,6 +3672,7 @@
     $("featuresAllOff").addEventListener("click", function () { command("set_all_features", { on: false }); });
 
     ["pool", "spa"].forEach(function (body) {
+      if (!$(body + "LightToggle")) return;
       $(body + "LightToggle").addEventListener("change", function (e) {
         command("set_light", { body: body, on: e.target.checked });
       });

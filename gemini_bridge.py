@@ -105,7 +105,8 @@ _BASE_FACTS = (
     "burners needs the burner password: pass the password the user says; if they "
     "did not give one, ask them for it. You do not know the password, never guess "
     "it, and never repeat it back. Turning burners off needs no password. "
-    "There are color LED pool and spa lights, and a heater. IntelliCenter automatically "
+    "There are IntelliBrite color LED pool and spa lights on one shared relay (AUX 3), so "
+    "they always switch on, off and change color together, and a heater. IntelliCenter automatically "
     "moves the 3-way drain and return valves in pool/spa mode."
 )
 

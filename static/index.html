@@ -180,14 +180,14 @@
             <div class="card-head">
               <div>
                 <h2>Lights &amp; Heater</h2>
-                <p class="muted">Pentair color LEDs and the pool heater.</p>
+                <p class="muted">IntelliBrite color lights (pool and spa share one relay) and the heater.</p>
               </div>
             </div>
             <div class="light-grid">
               <div class="light-card" data-body="pool">
                 <div class="light-head">
                   <div>
-                    <strong>Pool LED</strong>
+                    <strong>Pool and Spa</strong>
                     <div class="pump-state" id="poolLightState">Off</div>
                   </div>
                   <label class="switch">
@@ -196,19 +196,6 @@
                   </label>
                 </div>
                 <select id="poolEffect" class="select"></select>
-              </div>
-              <div class="light-card" data-body="spa">
-                <div class="light-head">
-                  <div>
-                    <strong>Spa LED</strong>
-                    <div class="pump-state" id="spaLightState">Off</div>
-                  </div>
-                  <label class="switch">
-                    <input type="checkbox" id="spaLightToggle">
-                    <span class="slider"></span>
-                  </label>
-                </div>
-                <select id="spaEffect" class="select"></select>
               </div>
             </div>
             <div class="light-scenes">
@@ -1566,7 +1553,7 @@
                     <td><code>C0004</code></td>
                     <td>Lights</td>
                     <td>IntelliBrite color LED lights (pool and spa share this one circuit).</td>
-                    <td>Pool and spa light switches and color shows (default steady blue). Also on the iS4 remotes.</td>
+                    <td>The single <strong>Pool and Spa</strong> light switch and color picker in Lights &amp; Heater (default steady blue); pool and spa lights always switch together. Also on the iS4 remotes.</td>
                   </tr>
                   <tr>
                     <td><strong>AUX 4</strong></td>
@@ -2933,7 +2920,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=32"></script>
+  <script src="app.js?v=33"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>
