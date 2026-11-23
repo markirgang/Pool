@@ -938,6 +938,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
             result = _gemini_call(
                 _gemini_key(data), prompt, image_bytes=image, image_mime="image/jpeg",
                 provider=_ai_provider(data),
+                speaker={"browser": "browser", "pi": "pi", "local": "pi"}.get(
+                    str(data.get("speaker_dest") or "")),
             )
             self.send_json(result)
             return
@@ -1048,8 +1050,11 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         provider = data.get("provider") or _ai_provider(data)
         model = data.get("model", "")
         ollama_url = data.get("ollama_url", "")
+        # The asking browser's own speaker choice (it may differ from the Pi's).
+        speaker = {"browser": "browser", "pi": "pi", "local": "pi"}.get(str(data.get("speaker_dest") or ""))
         if path == "/api/gemini/chat":
-            result = _gemini_call(api_key, data.get("prompt", ""), provider=provider, model=model, ollama_url=ollama_url)
+            result = _gemini_call(api_key, data.get("prompt", ""), provider=provider, model=model,
+                                  ollama_url=ollama_url, speaker=speaker)
         elif path == "/api/gemini/vision":
             image_b64 = data.get("image_b64", "")
             image = base64.b64decode(image_b64) if image_b64 else None
@@ -1061,6 +1066,7 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 provider=provider,
                 model=model,
                 ollama_url=ollama_url,
+                speaker=speaker,
             )
         else:
             use_local_mic = bool(data.get("use_local_mic") or data.get("source") == "local")
@@ -1071,7 +1077,8 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
                 mime = "audio/wav"
             else:
                 audio = base64.b64decode(audio_b64) if audio_b64 else None
-            result = _voice_request(api_key, audio, mime, local=use_local_mic, provider=provider)
+            result = _voice_request(api_key, audio, mime, local=use_local_mic, provider=provider,
+                                    speaker=speaker)
         self.send_json(result)
 
 
@@ -1144,7 +1151,8 @@ def _apply_voice_action(action: str | None, payload: dict[str, Any]) -> dict[str
 
 
 def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: bool,
-                   provider: str = "", speak_local: bool = True) -> dict[str, Any]:
+                   provider: str = "", speak_local: bool = True,
+                   speaker: str | None = None) -> dict[str, Any]:
     """Fast voice path: quick transcription, wake word, instant commands, then AI."""
     started = time.time()
     assistant = CONFIG.get("assistant") or {}
@@ -1186,7 +1194,7 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
         if local and LOCAL_CAMERA and camera_cfg.get("vision_on_voice", True):
             image = LOCAL_CAMERA.capture()
         return _gemini_call(api_key, "", audio, mime_type, local=local, speak_local=speak_local,
-                            image_bytes=image, provider=provider)
+                            image_bytes=image, provider=provider, speaker=speaker)
     heard = time.time()
     AI_STATUS.update({"ok": True, "error": "", "at": time.time()})
     timing.update(heard=heard, transcript=transcript or "")
@@ -1218,7 +1226,7 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
         result: dict[str, Any] = {"text": text, "transcription": transcript, "fast": True,
                                   "applied": {"ok": applied.get("ok"), "message": applied.get("message")}}
         timing["path"] = "instant"
-        _finish_reply(result, text, local, speak_local, assistant, timing)
+        _finish_reply(result, text, local, speak_local, assistant, timing, speaker)
         LOG.info("Voice (instant, %s) heard in %.1fs, answered in %.1fs: %r -> %r",
                  timing["engine"], heard - started, time.time() - started, transcript, text)
         return result
@@ -1238,14 +1246,15 @@ def _voice_request(api_key: str, audio: bytes | None, mime_type: str, local: boo
     result = _gemini_call(
         api_key, prompt, local=local, speak_local=speak_local, image_bytes=image,
         provider=provider, model=reply_model,
-        transcription=transcript, timing=timing)
+        transcription=transcript, timing=timing, speaker=speaker)
     LOG.info("Voice (AI, %s + %s) heard in %.1fs, answered in %.1fs: %r", timing["engine"],
              reply_model, heard - started, time.time() - started, transcript)
     return result
 
 
 def _finish_reply(result: dict[str, Any], text: str, local: bool, speak_local: bool,
-                  assistant: dict[str, Any], timing: dict[str, Any] | None = None) -> None:
+                  assistant: dict[str, Any], timing: dict[str, Any] | None = None,
+                  speaker: str | None = None) -> None:
     """Record the reply for the app and speak it on the selected speaker."""
     _mark_timing(timing, replied=time.time())
     result["state"] = _state()
@@ -1260,8 +1269,10 @@ def _finish_reply(result: dict[str, Any], text: str, local: bool, speak_local: b
         })
     if text and LOCAL_AUDIO:
         voice = assistant.get("server_voice") or local_audio.DEFAULT_SERVER_VOICE
-        # One speaker at a time: the Pi's or the browser's (Hardware tab).
-        if LOCAL_AUDIO.pi_speaker_selected():
+        # One speaker at a time: the Pi's or the browser's (Hardware tab). A
+        # browser request names its own choice; otherwise the Pi's setting wins.
+        use_pi = speaker == "pi" if speaker else LOCAL_AUDIO.pi_speaker_selected()
+        if use_pi:
             if speak_local:
                 # Starts talking as the voice streams in; the browser plays nothing.
                 LOCAL_AUDIO.speak(text, voice,
@@ -1283,7 +1294,8 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
                  model: str = "",
                  ollama_url: str = "",
                  transcription: str | None = None,
-                 timing: dict[str, Any] | None = None) -> dict[str, Any]:
+                 timing: dict[str, Any] | None = None,
+                 speaker: str | None = None) -> dict[str, Any]:
     assistant = CONFIG.get("assistant") or {}
     state = _state()
     if audio is not None:
@@ -1323,7 +1335,7 @@ def _gemini_call(api_key: str, prompt: str = "", audio: bytes | None = None,
         elif not text or text.startswith("Executing action:"):
             # The model acted without saying anything; say what was done.
             text = result["text"] = str(applied.get("message") or "Done.")
-    _finish_reply(result, text, local, speak_local, assistant, timing)
+    _finish_reply(result, text, local, speak_local, assistant, timing, speaker)
     return result
 
 

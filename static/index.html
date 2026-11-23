@@ -567,6 +567,18 @@
                 </label>
               </div>
             </div>
+
+            <div class="source-card">
+              <div class="source-title">Save my mic &amp; speaker choice to</div>
+              <select id="audioSaveTarget" class="select">
+                <option value="server">The Pi (shared by every browser)</option>
+                <option value="browser">This browser only</option>
+                <option value="both">Both this browser and the Pi</option>
+              </select>
+              <div class="muted" id="audioChoiceOrigin" style="font-size:0.78rem; margin-top:6px;"></div>
+              <button class="btn small ghost" id="clearBrowserAudioChoice" type="button" hidden style="margin-top:6px;">Use the Pi&rsquo;s shared choice here</button>
+              <div class="muted" style="font-size:0.72rem; margin-top:6px;">The Pi&rsquo;s webcam mic listens whenever the Pi&rsquo;s shared choice is &ldquo;Pi webcam mic&rdquo;, whatever a browser picks for itself. Each browser&rsquo;s own choice decides where <em>its</em> replies play.</div>
+            </div>
           </div>
 
           <div class="form-grid audio-grid">
@@ -2962,7 +2974,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=34"></script>
+  <script src="app.js?v=35"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>

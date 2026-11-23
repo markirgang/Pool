@@ -703,8 +703,69 @@
   function browserSpeakerEnabled() {
     var radio = $("destBrowserSpeaker");
     if (radio) return radio.checked;
+    return audioChoice().speaker_dest === "browser";
+  }
+
+  // Which speaker this browser wants replies on, sent with every AI request.
+  function speakerDest() {
+    return browserSpeakerEnabled() ? "browser" : "pi";
+  }
+
+  // Mic/speaker choices can be saved on the Pi (shared by every browser), in
+  // this browser only, or both. A browser-only choice overrides the Pi's here.
+  var AUDIO_CHOICE_KEY = "pool.audioChoice";
+
+  function audioSaveTarget() {
+    var t = localStorage.getItem("pool.audioSaveTarget");
+    return t === "browser" || t === "both" ? t : "server";
+  }
+
+  function browserAudioChoice() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(AUDIO_CHOICE_KEY) || "{}");
+      return saved && typeof saved === "object" ? saved : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function serverAudioChoice() {
     var cfg = (config && config.audio && config.audio.browser) || {};
-    return (cfg.speaker_dest || "local") === "browser";
+    return {
+      voice_source: cfg.voice_source === "browser" ? "browser" : "local",
+      speaker_dest: cfg.speaker_dest === "browser" ? "browser" : "local"
+    };
+  }
+
+  function audioChoice() {
+    var server = serverAudioChoice();
+    var mine = browserAudioChoice();
+    return {
+      voice_source: mine.voice_source || server.voice_source,
+      speaker_dest: mine.speaker_dest || server.speaker_dest,
+      mic_from: mine.voice_source ? "browser" : "server",
+      speaker_from: mine.speaker_dest ? "browser" : "server"
+    };
+  }
+
+  function applyAudioChoice() {
+    var c = audioChoice();
+    if ($("sourceLocalMic")) $("sourceLocalMic").checked = c.voice_source !== "browser";
+    if ($("sourceBrowserMic")) $("sourceBrowserMic").checked = c.voice_source === "browser";
+    if ($("destLocalSpeaker")) $("destLocalSpeaker").checked = c.speaker_dest !== "browser";
+    if ($("destBrowserSpeaker")) $("destBrowserSpeaker").checked = c.speaker_dest === "browser";
+    if ($("audioSaveTarget")) $("audioSaveTarget").value = audioSaveTarget();
+    var origin = $("audioChoiceOrigin");
+    if (origin) {
+      var where = function (from) { return from === "browser" ? "this browser\u2019s saved choice" : "the Pi\u2019s shared choice"; };
+      origin.textContent = "Mic: " + (c.voice_source === "browser" ? "this browser" : "Pi webcam") +
+        " (" + where(c.mic_from) + ") \u00B7 Speaker: " + (c.speaker_dest === "browser" ? "this browser" : "Pi") +
+        " (" + where(c.speaker_from) + ")";
+    }
+    if ($("clearBrowserAudioChoice")) {
+      $("clearBrowserAudioChoice").hidden = c.mic_from !== "browser" && c.speaker_from !== "browser";
+    }
+    applyMicSource();
   }
 
   function speak(text, audioB64, audioMime) {
@@ -751,7 +812,7 @@
       var result = await api("/api/gemini/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt, api_key: geminiKey() })
+        body: JSON.stringify({ prompt: prompt, api_key: geminiKey(), speaker_dest: speakerDest() })
       });
       handleAiResult(result);
     } catch (err) {
@@ -826,6 +887,20 @@
   }
 
   async function saveAudioChoice(browserFields, message) {
+    var target = audioSaveTarget();
+    var mine = browserAudioChoice();
+    Object.keys(browserFields).forEach(function (k) {
+      // Saved to the Pi only: this browser follows the Pi's choice again.
+      if (target === "server") delete mine[k]; else mine[k] = browserFields[k];
+    });
+    localStorage.setItem(AUDIO_CHOICE_KEY, JSON.stringify(mine));
+    var where = target === "browser" ? " (this browser only)"
+      : target === "both" ? " (this browser and the Pi)" : " (on the Pi for every browser)";
+    if (target === "browser") {
+      applyAudioChoice();
+      toast(message + where, "good");
+      return;
+    }
     try {
       var result = await api("/api/settings", {
         method: "POST",
@@ -833,9 +908,10 @@
         body: JSON.stringify({ audio: { browser: browserFields } })
       });
       if (result && result.config) config = result.config;
-      toast(message, "good");
+      applyAudioChoice();
+      toast(message + where, "good");
     } catch (err) {
-      toast("Could not save: " + err.message, "error");
+      toast("Could not save on the Pi: " + err.message, "error");
     }
   }
 
@@ -1053,7 +1129,8 @@
             body: JSON.stringify({
               audio_b64: b64,
               mime_type: blob.type || "audio/webm",
-              api_key: geminiKey()
+              api_key: geminiKey(),
+              speaker_dest: speakerDest()
             })
           });
           handleAiResult(result);
@@ -1254,15 +1331,8 @@
       fillSelect($("localMic"), localAudio.inputs, "System default microphone", localMic);
       fillSelect($("localSpeaker"), localAudio.outputs, "System default speaker", localSpk);
 
-      // The mic and speaker choices are stored on the Pi: there is one Pi mic,
-      // so every browser must agree which mic and speaker are in use.
-      var savedVoiceSource = browserCfg.voice_source === "browser" ? "browser" : "local";
-      var savedSpeakerDest = browserCfg.speaker_dest === "browser" ? "browser" : "local";
-      if ($("sourceLocalMic")) $("sourceLocalMic").checked = (savedVoiceSource === "local");
-      if ($("sourceBrowserMic")) $("sourceBrowserMic").checked = (savedVoiceSource === "browser");
-      if ($("destLocalSpeaker")) $("destLocalSpeaker").checked = (savedSpeakerDest === "local");
-      if ($("destBrowserSpeaker")) $("destBrowserSpeaker").checked = (savedSpeakerDest === "browser");
-      applyMicSource();
+      // The Pi's shared mic/speaker choice, unless this browser saved its own.
+      applyAudioChoice();
 
       setSilenceDelay((localCfg.silence_ms || 1000) / 1000, false);
       if (localCfg.speech_rms) {
@@ -1338,6 +1408,21 @@
         }
       }
     };
+    var target = audioSaveTarget();
+    var mine = browserAudioChoice();
+    if (target === "server") {
+      delete mine.voice_source;
+      delete mine.speaker_dest;
+    } else {
+      mine.voice_source = voiceSource;
+      mine.speaker_dest = speakerDest;
+    }
+    localStorage.setItem(AUDIO_CHOICE_KEY, JSON.stringify(mine));
+    if (target === "browser") {
+      // Keep the Pi's shared mic/speaker choice; still save the device lists.
+      delete payload.audio.browser.voice_source;
+      delete payload.audio.browser.speaker_dest;
+    }
     try {
       await api("/api/settings", {
         method: "POST",
@@ -1352,9 +1437,11 @@
       if (config) {
         config.audio = config.audio || {};
         config.audio.local = payload.audio.local;
-        config.audio.browser = payload.audio.browser;
+        config.audio.browser = Object.assign({}, config.audio.browser || {}, payload.audio.browser);
       }
-      toast("Audio hardware settings saved", "good");
+      applyAudioChoice();
+      toast("Audio hardware settings saved" + (target === "browser" ? " (mic/speaker choice in this browser only)"
+        : target === "both" ? " (mic/speaker choice in this browser and on the Pi)" : ""), "good");
     } catch (err) {
       toast("Could not save audio devices: " + err.message, "error");
     }
@@ -1503,7 +1590,7 @@
       var result = await api("/api/camera/look", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt, api_key: geminiKey() })
+        body: JSON.stringify({ prompt: prompt, api_key: geminiKey(), speaker_dest: speakerDest() })
       });
       handleAiResult(result);
       refreshLocalSnapshot();
@@ -1529,7 +1616,8 @@
           image_b64: b64,
           mime_type: "image/jpeg",
           prompt: prompt,
-          api_key: geminiKey()
+          api_key: geminiKey(),
+          speaker_dest: speakerDest()
         })
       });
       handleAiResult(result);
@@ -3881,6 +3969,23 @@
         });
       }
     });
+
+    if ($("audioSaveTarget")) {
+      $("audioSaveTarget").value = audioSaveTarget();
+      $("audioSaveTarget").addEventListener("change", function (e) {
+        localStorage.setItem("pool.audioSaveTarget", e.target.value);
+        toast(e.target.value === "browser" ? "Mic and speaker choices will be saved in this browser only"
+          : e.target.value === "both" ? "Mic and speaker choices will be saved in this browser and on the Pi"
+          : "Mic and speaker choices will be saved on the Pi for every browser", "good");
+      });
+    }
+    if ($("clearBrowserAudioChoice")) {
+      $("clearBrowserAudioChoice").addEventListener("click", function () {
+        localStorage.removeItem(AUDIO_CHOICE_KEY);
+        applyAudioChoice();
+        toast("This browser now follows the Pi\u2019s mic and speaker choice", "good");
+      });
+    }
 
     ["destLocalSpeaker", "destBrowserSpeaker"].forEach(function (id) {
       var r = $(id);
