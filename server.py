@@ -32,6 +32,7 @@ import re
 import socket
 import socketserver
 import ssl
+import subprocess
 import sys
 import threading
 import time
@@ -855,6 +856,23 @@ class PoolHandler(http.server.SimpleHTTPRequestHandler):
         if not self.require_login():
             return
         if path in ADMIN_POST_PATHS and not self.require_admin():
+            return
+
+        if path == "/api/kiosk/exit":
+            # Only the Pi's own screen may close its kiosk browser.
+            if not self.is_local_screen():
+                self.send_json({"ok": False, "message": "Exit Kiosk only works on the Pi's own screen"},
+                               status=403)
+                return
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kiosk", "kiosk-mode.sh")
+            env = dict(os.environ)
+            env.setdefault("WAYLAND_DISPLAY", "wayland-0")
+            env.setdefault("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+            # Detached: the script closes the browser that sent this request.
+            subprocess.Popen([script, "exit"], env=env, start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            LOG.info("Exit Kiosk pressed on the Pi screen")
+            self.send_json({"ok": True, "message": "Leaving kiosk mode"})
             return
 
         if path == "/api/command":

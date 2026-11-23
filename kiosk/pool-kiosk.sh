@@ -10,6 +10,17 @@ LOCK="${XDG_RUNTIME_DIR:-/tmp}/pool-kiosk.lock"
 exec 9>"$LOCK"
 flock -n 9 || exit 0
 
+# The Pi desktop runs labwc in merge mode, so the system autostart (taskbar,
+# desktop icons) starts alongside this one. Close them so only the pool app
+# shows; "kiosk-mode.sh exit" brings them back.
+hide_desktop() {
+  pkill -f 'lwrespawn /usr/bin/(wf-panel-pi|pcmanfm-pi)'
+  pkill -f wf-panel-pi
+  pkill -f pcmanfm-pi
+}
+hide_desktop
+( sleep 10; hide_desktop ) &
+
 token() {
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("auth", {}).get("kiosk_token", ""))' \
     "$POOL_DIR/config.local.json" 2>/dev/null

@@ -2510,3 +2510,13 @@ body.kiosk .switch.mini .slider::before { width: 22px; height: 22px; }
 body.kiosk .switch.mini input:checked + .slider::before { transform: translateX(22px); }
 body.kiosk .btn:hover, body.kiosk .mode-btn:hover, body.kiosk .scene:hover { transform: none; }
 body.kiosk .btn:active, body.kiosk .mode-btn:active, body.kiosk .scene:active { transform: scale(0.97); }
+
+.kiosk-exit-btn { display: none; }
+body.kiosk .kiosk-exit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-color: rgba(255, 115, 115, 0.6);
+  color: #ffd1d1;
+  background: rgba(255, 80, 80, 0.12);
+}

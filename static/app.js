@@ -3804,6 +3804,17 @@
         command("set_firebasket", { id: key, on: e.target.checked });
       }
     });
+    if ($("exitKioskBtn")) {
+      $("exitKioskBtn").addEventListener("click", async function () {
+        if (!window.confirm("Exit kiosk mode and show the Raspberry Pi desktop?\n\nThe Pi will still start in kiosk mode next time it boots. To come back now, double-tap the \u201cPool Touchscreen\u201d icon on the desktop.")) return;
+        try {
+          var res = await api("/api/kiosk/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+          toast((res && res.message) || "Leaving kiosk mode", res && res.ok === false ? "error" : "good");
+        } catch (err) {
+          toast("Could not exit kiosk mode: " + err.message, "error");
+        }
+      });
+    }
     $("featuresAllOn").addEventListener("click", function () { command("set_all_features", { on: true }); });
     $("featuresAllOff").addEventListener("click", function () { command("set_all_features", { on: false }); });
 

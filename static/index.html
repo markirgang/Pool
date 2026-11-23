@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lighthouse Pool - IntelliCenter Control</title>
-  <link rel="stylesheet" href="style.css?v=20">
+  <link rel="stylesheet" href="style.css?v=21">
   <script src="lib/three.min.js"></script>
   <script src="lib/OrbitControls.js"></script>
 </head>
@@ -33,6 +33,7 @@
       <button class="tab" data-tab="manual">📖 Instructions</button>
     </nav>
 <div class="header-right">
+      <button class="btn small kiosk-exit-btn" id="exitKioskBtn" type="button" title="Close the full-screen pool app and show the Pi desktop">&#10005; Exit Kiosk</button>
       <a class="public-link" href="https://pool.shobots.party" target="_blank" rel="noopener">pool.shobots.party</a>
       <div class="status-badge" id="statusBadge">
         <span class="status-dot"></span>
@@ -2145,7 +2146,9 @@ kiosk/kiosk-mode.sh on
 systemctl --user restart pool.service</code></pre>
             <p><strong>Switch the screen over right now</strong> (or double-tap the <em>Pool Touchscreen</em> icon on the desktop):</p>
             <pre class="manual-code"><code>kiosk/kiosk-mode.sh on now</code></pre>
-            <p><strong>Get back to the desktop:</strong> plug in a keyboard, press <strong>Ctrl+Alt+T</strong> to open a terminal, then run the command below. The normal desktop returns straight away and at every boot.</p>
+            <p><strong>Leave kiosk mode for now:</strong> tap <strong>&#10005; Exit Kiosk</strong> at the top of the pool app (it only appears on the Pi&rsquo;s own screen) and confirm. The Pi desktop appears straight away, and the Pi still starts in kiosk mode at the next boot. To go back without rebooting, double-tap <em>Pool Touchscreen</em> on the desktop. The same thing from a terminal:</p>
+            <pre class="manual-code"><code>~/Pool/kiosk/kiosk-mode.sh exit</code></pre>
+            <p><strong>Stop booting into kiosk mode:</strong> from the desktop (or plug in a keyboard and press <strong>Ctrl+Alt+T</strong> for a terminal), run the command below. The normal desktop is then used at every boot.</p>
             <pre class="manual-code"><code>~/Pool/kiosk/kiosk-mode.sh off</code></pre>
             <p><strong>Check which mode is set:</strong></p>
             <pre class="manual-code"><code>~/Pool/kiosk/kiosk-mode.sh status</code></pre>
@@ -2974,7 +2977,7 @@ sudo systemctl enable --now cloudflared</code></pre>
 
   <script src="pool3d.js?v=11"></script>
   <script src="panel3d.js?v=1"></script>
-  <script src="app.js?v=35"></script>
+  <script src="app.js?v=36"></script>
   <script src="audio_output.js?v=3"></script>
     <script src="ai_model_selector.js?v=4"></script>
 </body>
